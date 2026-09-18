@@ -1,0 +1,96 @@
+{
+  "_comment": "Espelho de model_registry gerado pelo pipeline AetherML",
+  "active_version": "v2026.38.1",
+  "iqar_table_version": "CONAMA-491/2018",
+  "feature_names_v1": [
+    "temperature",
+    "relative_humidity",
+    "wind_speed",
+    "wind_direction",
+    "wind_u",
+    "wind_v",
+    "boundary_layer_height",
+    "surface_pressure",
+    "solar_radiation",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
+    "is_weekend",
+    "traffic_speed_avg",
+    "traffic_delay_ratio",
+    "traffic_congestion_index",
+    "satellite_aod",
+    "satellite_tropomi_no2",
+    "satellite_uvai",
+    "pm25_lag24",
+    "pm10_lag24",
+    "no2_lag24",
+    "o3_lag24",
+    "pblh_rolling6"
+  ],
+  "targets": [
+    "pm25",
+    "pm10",
+    "o3",
+    "no2",
+    "so2"
+  ],
+  "models": {
+    "pm25": {
+      "onnx_file": "pm25.onnx",
+      "sha256": "7bdafde8fa66055047b8c225a8e6b57fe1fe232a1d116b1a77afcb8d802daf30",
+      "size_kb": 237.78,
+      "topology_file": "pm25.topology.json",
+      "metrics": {
+        "mae": 1.98,
+        "rmse": 2.5,
+        "r2": 0.8544
+      }
+    },
+    "pm10": {
+      "onnx_file": "pm10.onnx",
+      "sha256": "615cd7ead575f61ce7121bdffc597ca19984ed8a7f49de103e81f6cbbc2dec18",
+      "size_kb": 236.21,
+      "topology_file": "pm10.topology.json",
+      "metrics": {
+        "mae": 3.08,
+        "rmse": 3.93,
+        "r2": 0.7377
+      }
+    },
+    "o3": {
+      "onnx_file": "o3.onnx",
+      "sha256": "d0b6f02943dd93e119a58330ff94b91828a8fdd1a8a83b764505ba72057d998c",
+      "size_kb": 239.84,
+      "topology_file": "o3.topology.json",
+      "metrics": {
+        "mae": 3.12,
+        "rmse": 4.42,
+        "r2": 0.9906
+      }
+    },
+    "no2": {
+      "onnx_file": "no2.onnx",
+      "sha256": "e52d300f132aafe90ca79f63e9f74841bbc55e354b0a78fd6a074528e1533955",
+      "size_kb": 222.09,
+      "topology_file": "no2.topology.json",
+      "metrics": {
+        "mae": 2.51,
+        "rmse": 3.12,
+        "r2": 0.9733
+      }
+    },
+    "so2": {
+      "onnx_file": "so2.onnx",
+      "sha256": "4e5894d679f6b289ddbe9914739a4512877367c400ec24423d299850a11e968b",
+      "size_kb": 245.62,
+      "topology_file": "so2.topology.json",
+      "metrics": {
+        "mae": 3.46,
+        "rmse": 4.5,
+        "r2": -1.2676
+      }
+    }
+  }
+}

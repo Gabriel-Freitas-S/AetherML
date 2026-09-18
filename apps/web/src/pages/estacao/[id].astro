@@ -1,0 +1,185 @@
+---
+import stationsData from "../../../public/data/stations-data.json";
+import ForecastChart from "../../components/ForecastChart.svelte";
+import Icon from "../../components/Icon.svelte";
+import Waterfall from "../../components/Waterfall.svelte";
+import { globalIQAr } from "@aetherml/core-iqar";
+// apps/web/src/pages/estacao/[id].astro — Diagnóstico por Estação RAMQAr
+import Layout from "../../layouts/Layout.astro";
+
+export async function getStaticPaths() {
+	return Object.keys(stationsData).map((stationId) => ({
+		params: { id: stationId },
+		props: { data: (stationsData as any)[stationId] },
+	}));
+}
+
+const { id } = Astro.params;
+const { data } = Astro.props;
+const station = data.station;
+
+// Pontos previstos para o gráfico com cálculo CONAMA 491/2018 oficial
+const points = data.points.map((p: any) => {
+	const res = globalIQAr(p.observed);
+	return {
+		hour: p.hour,
+		timestamp: p.timestamp,
+		...p.observed,
+		iqar: res.iqar,
+		classification: res.classification,
+		primary: res.primary,
+	};
+});
+
+const currentPoint = points[0];
+
+const saabasExample = [
+	{ feature: "wind_direction", phi: station.downwind_tubarao ? 14.2 : 3.1 },
+	{ feature: "boundary_layer_height", phi: 5.8 },
+	{
+		feature: "traffic_congestion_index",
+		phi: station.bridge_proximity ? 12.5 : 4.0,
+	},
+	{ feature: "satellite_aod", phi: 2.3 },
+	{ feature: "wind_speed", phi: -4.8 },
+];
+
+// Prognóstico de 5 Dias (120 horas) agrupado por dia civil com dados oficiais CONAMA 491
+const FALLBACK_DAY_NAMES = ["Hoje", "Amanhã", "Dia 3", "Dia 4", "Dia 5"];
+function dayLabel(pts: any[], dayIdx: number): string {
+	const p = pts[dayIdx * 24];
+	if (!p?.timestamp) return FALLBACK_DAY_NAMES[dayIdx] ?? `Dia ${dayIdx + 1}`;
+	const d = new Date(p.timestamp);
+	const parts = new Intl.DateTimeFormat("pt-BR", {
+		timeZone: "America/Sao_Paulo",
+		weekday: "short",
+		day: "2-digit",
+		month: "2-digit",
+	}).formatToParts(d);
+	const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "";
+	let wd = get("weekday").replace(".", "");
+	wd = wd.charAt(0).toUpperCase() + wd.slice(1);
+	const label = `${wd} ${get("day")}/${get("month")}`;
+	return dayIdx === 0 ? `Hoje · ${label}` : label;
+}
+const fiveDaysForecast = [0, 1, 2, 3, 4].map((dayIdx) => {
+	const dayPoints = points.slice(dayIdx * 24, (dayIdx + 1) * 24);
+	const maxIqar = Math.max(...dayPoints.map((p: any) => p.iqar));
+	const avgIqar = Math.round(
+		dayPoints.reduce((acc: number, p: any) => acc + p.iqar, 0) /
+			Math.max(1, dayPoints.length),
+	);
+	const peakPoint = dayPoints.find((p: any) => p.iqar === maxIqar) || dayPoints[0];
+	return {
+		dayNumber: dayIdx + 1,
+		label: dayLabel(points, dayIdx),
+		maxIqar,
+		avgIqar,
+		classification: peakPoint.classification,
+		primary: peakPoint.primary.toUpperCase(),
+	};
+});
+---
+
+<Layout title={`AetherML — ${station.name}`}>
+  <div class="mb-6 flex justify-between items-center flex-wrap gap-4">
+    <div>
+      <a href="/" class="text-xs text-sky-700 hover:underline flex items-center gap-1 mb-2 font-semibold">
+        <Icon name="arrowLeft" cls="w-3.5 h-3.5" /> Voltar ao Dashboard Geral
+      </a>
+      <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2 tracking-tight">
+        {station.name}
+      </h1>
+      <p class="text-slate-500 text-sm mt-0.5">
+        Município: <strong class="text-slate-700">{station.municipality}</strong> &bull;
+        Coordenadas: <span class="font-mono text-slate-600">{station.lat}, {station.lon}</span>
+      </p>
+    </div>
+
+    <!-- Status Atual da Estação -->
+    <div class="bg-white border border-slate-200 px-5 py-3 rounded-2xl flex items-center gap-4 shadow-sm">
+      <div>
+        <div class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">IQAr Atual &bull; Tempo Real</div>
+        <div class="text-3xl font-black font-mono text-amber-600">{currentPoint.iqar}</div>
+      </div>
+      <div class="text-xs">
+        <span class={`inline-block px-2.5 py-0.5 rounded font-bold ${
+          currentPoint.classification === 'Boa' ? 'badge-boa' :
+          currentPoint.classification === 'Moderada' ? 'badge-moderada' : 'badge-ruim'
+        }`}>
+          {currentPoint.classification}
+        </span>
+        <div class="text-slate-500 text-[11px] mt-1">Crítico: {currentPoint.primary.toUpperCase()}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Visão Geral de 5 Dias por Machine Learning da Estação -->
+  <div class="mb-6">
+    <div class="mb-2.5 flex items-center justify-between">
+      <h2 class="text-sm font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-sky-500"></span>
+        Prognóstico de 5 Dias (120 Horas Contínuas)
+      </h2>
+      <span class="text-xs text-slate-500 font-mono">Resolução Horária CONAMA 491</span>
+    </div>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {fiveDaysForecast.map((day) => (
+        <div class="glass-card glass-card-hover p-3.5 text-center">
+          <div class="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{day.label}</div>
+          <div class="text-2xl font-black font-mono my-1 text-slate-900">{day.avgIqar}</div>
+          <span class={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${
+            day.classification === 'Boa' ? 'badge-boa' :
+            day.classification === 'Moderada' ? 'badge-moderada' : 'badge-ruim'
+          }`}>
+            {day.classification}
+          </span>
+          <div class="text-[10px] text-slate-500 mt-1.5 font-mono">
+            Pico {day.maxIqar} &bull; {day.primary}
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+
+  <!-- Série Preditiva de 5 Dias / 120h -->
+  <div class="mb-8">
+    <ForecastChart client:load points={points} activePollutant="iqar" />
+  </div>
+
+  <!-- Decomposição Saabas -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div class="lg:col-span-8">
+      <Waterfall
+        client:load
+        contributions={saabasExample}
+        stationName={station.name}
+        primaryPollutant="pm25"
+        baseValue={14.5}
+      />
+    </div>
+
+    <div class="lg:col-span-4 glass-card p-5">
+      <h3 class="text-base font-bold text-slate-800 mb-3">Recomendações de Saúde</h3>
+      <p class="text-xs text-slate-600 leading-relaxed mb-4">
+        Conforme a Resolução CONAMA nº 491/2018 para a faixa <strong>{currentPoint.classification}</strong>:
+      </p>
+      <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs text-slate-600 leading-relaxed">
+        {currentPoint.classification === 'Boa'
+          ? 'Qualidade do ar considerada satisfatória. Não há restrições para atividades ao ar livre.'
+          : 'Pessoas de grupos sensíveis (crianças, idosos, asmáticos e cardiopatas) podem apresentar sintomas como tosse e cansaço. Recomenda-se evitar esforço intenso ao ar livre.'}
+      </div>
+
+      <div class="mt-6 pt-4 border-t border-slate-200 text-xs text-slate-500 space-y-2">
+        <div class="flex justify-between">
+          <span>Fonte Primária de Dados:</span>
+          <strong class="text-slate-700">IEMA / RAMQAr</strong>
+        </div>
+        <div class="flex justify-between">
+          <span>Cache DB-First:</span>
+          <strong class="text-emerald-700 font-mono">D1/SQLite Ativo</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+</Layout>

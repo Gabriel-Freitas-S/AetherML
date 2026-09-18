@@ -1,0 +1,1 @@
+import{t as p}from"./props.BwhILBmW.js";import{S as r,l as i}from"./render.Tasbp6Cl.js";function n(t,s,y,f){var l=t[r];if(i||l!==s){var e=p(s);(!i||e!==t.getAttribute("style"))&&(e==null?t.removeAttribute("style"):t.style.cssText=e),t[r]=s}return f}export{n as s};

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "cloudflare-docs": {
+      "httpUrl": "https://docs.mcp.cloudflare.com/mcp"
+    },
+    "codegraph": {
+      "command": ["codegraph", "mcp", "serve", "--root", ".", "--stdio"]
+    }
+  }
+}

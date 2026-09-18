@@ -1,0 +1,14 @@
+{
+	"name": "@aetherml/geo",
+	"version": "0.1.0",
+	"type": "module",
+	"main": "./src/geo.ts",
+	"types": "./src/geo.ts",
+	"scripts": {
+		"test": "node --test test/**/*.test.ts"
+	},
+	"devDependencies": {
+		"tsx": "^4.19.0",
+		"typescript": "^5.5.0"
+	}
+}

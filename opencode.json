@@ -1,0 +1,26 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "AGENTS.md",
+    ".agents/rules/*.md"
+  ],
+  "formatter": true,
+  "permission": {
+    "skill": {
+      "*": "allow"
+    }
+  },
+  "mcp": {
+    "cloudflare-docs": {
+      "type": "remote",
+      "url": "https://docs.mcp.cloudflare.com/mcp",
+      "enabled": true
+    },
+    "codegraph": {
+      "type": "local",
+      "command": ["codegraph", "mcp", "serve", "--root", ".", "--stdio"],
+      "enabled": true,
+      "timeout": 15000
+    }
+  }
+}

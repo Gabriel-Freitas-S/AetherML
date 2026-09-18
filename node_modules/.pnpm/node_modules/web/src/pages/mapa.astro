@@ -1,0 +1,66 @@
+---
+import { globalIQAr } from "@aetherml/core-iqar";
+import stationsData from "../../public/data/stations-data.json";
+import RmgvMap from "../components/Map.svelte";
+// apps/web/src/pages/mapa.astro — Visualização Cartográfica Detalhada
+import Layout from "../layouts/Layout.astro";
+
+const stationsList = Object.values(stationsData as any).map((item: any) => {
+	const res = globalIQAr(item.points[0].observed);
+	return {
+		...item.station,
+		latitude: item.station.latitude ?? item.station.lat,
+		longitude: item.station.longitude ?? item.station.lon,
+		iqar: res.iqar,
+		classification: res.classification,
+		primary: res.primary,
+	};
+});
+---
+
+<Layout title="AetherML — Mapa Espacial da Grande Vitória">
+  <div class="mb-6">
+    <div class="glass-card px-5 py-4 relative overflow-hidden">
+      <div class="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-sky-500 to-transparent"></div>
+      <h1 class="text-2xl font-extrabold text-slate-900 flex items-center gap-2 tracking-tight">
+        <span class="section-dot !w-3 !h-3"></span>
+        Rede de Monitoramento da Qualidade do Ar (RAMQAr)
+      </h1>
+      <p class="text-slate-500 text-sm mt-1">
+        Distribuição geográfica das 9 estações na Grande Vitória. Troque o basemap (Voyager / Dark / Positron) no cartão do mapa ou use o GPS para achar a estação mais próxima.
+      </p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Mapa Principal -->
+    <div class="lg:col-span-2">
+      <RmgvMap client:only="svelte" stations={stationsList} />
+    </div>
+
+    <!-- Lista Lateral de Estações -->
+    <div class="glass-card p-4 space-y-3 max-h-[340px] lg:max-h-[460px] overflow-y-auto">
+      <h3 class="text-xs uppercase font-bold text-slate-400 tracking-wider">Estações de Monitoramento</h3>
+      {stationsList.map((s) => (
+        <div class="bg-white p-3 rounded-xl border border-slate-200 hover:border-sky-400 hover:-translate-y-0.5 transition-all shadow-sm">
+          <div class="flex justify-between items-start">
+            <div>
+              <h4 class="text-sm font-bold text-slate-800">{s.name}</h4>
+              <p class="text-xs text-slate-500">{s.municipality}</p>
+            </div>
+            <span class={`chip !text-[11px] font-mono font-bold ${
+              s.classification === 'Boa' ? 'badge-boa' :
+              s.classification === 'Moderada' ? 'badge-moderada' : 'badge-ruim'
+            }`}>
+              {s.iqar}
+            </span>
+          </div>
+          <div class="mt-2 text-[11px] text-slate-500 flex items-center justify-between">
+            <span class="font-mono">{s.latitude}, {s.longitude}</span>
+            <a href={`/estacao/${s.id}`} class="text-sky-700 hover:underline font-semibold">Ver Previsão 5 Dias →</a>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</Layout>

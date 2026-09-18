@@ -1,0 +1,62 @@
+---
+import Icon from "../../components/Icon.svelte";
+import { GUIDES } from "../../lib/guides";
+// apps/web/src/pages/docs/index.astro — Portal da Documentação (trilhas)
+import Layout from "../../layouts/Layout.astro";
+
+const start = GUIDES.filter((g) => g.track === "start");
+const tech = GUIDES.filter((g) => g.track === "tech");
+---
+
+<Layout title="AetherML — Documentação e Guias">
+  <div class="max-w-5xl mx-auto py-4">
+    <div class="mb-8 text-center sm:text-left">
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-sky-50 border border-sky-200 text-xs text-sky-700 font-semibold mb-3">
+        <Icon name="book" cls="w-3.5 h-3.5" />
+        <span>DOCUMENTAÇÃO &bull; DO BÁSICO AO TÉCNICO</span>
+      </div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight">
+        Entenda o ar que você <span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-600 to-emerald-500">respira</span>
+      </h1>
+      <p class="text-slate-500 text-sm sm:text-base mt-2 max-w-3xl leading-relaxed">
+        Comece pelo essencial ou mergulhe na engenharia: dados, modelos, norma CONAMA e código.
+      </p>
+    </div>
+
+    <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-2">
+      <Icon name="gauge" cls="w-4 h-4 text-sky-600" /> Comece por aqui
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
+      {start.map((g) => (
+        <a href={`/docs/${g.slug}`} class="glass-card glass-card-hover p-5 flex flex-col group">
+          <span class="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-emerald-400 flex items-center justify-center mb-3 shadow-md shadow-sky-500/20">
+            <Icon name={g.icon} cls="w-5 h-5 text-white" />
+          </span>
+          <h3 class="text-base font-bold text-slate-800 group-hover:text-sky-700 transition-colors">{g.title}</h3>
+          <p class="text-xs text-slate-500 mt-1.5 leading-relaxed flex-1">{g.summary}</p>
+          <span class="mt-3 text-xs font-bold text-sky-700 flex items-center gap-1">
+            Ler guia <Icon name="arrowRight" cls="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+          </span>
+        </a>
+      ))}
+    </div>
+
+    <h2 class="text-sm font-bold uppercase tracking-widest text-slate-500 mb-3 flex items-center gap-2">
+      <Icon name="cpu" cls="w-4 h-4 text-slate-400" /> Documentação técnica
+    </h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {tech.map((g) => (
+        <a href={`/docs/${g.slug}`} class="glass-card glass-card-hover p-5 flex gap-4 group">
+          <span class="w-9 h-9 rounded-xl bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
+            <Icon name={g.icon} cls="w-5 h-5 text-slate-600" />
+          </span>
+          <span>
+            <span class="text-[11px] font-mono font-bold text-sky-700">GUIA {g.number} &bull; {g.badge.toUpperCase()}</span>
+            <h3 class="text-[15px] font-bold text-slate-800 group-hover:text-sky-700 transition-colors leading-snug mt-0.5">{g.title}</h3>
+            <p class="text-xs text-slate-500 mt-1 leading-relaxed">{g.summary}</p>
+          </span>
+        </a>
+      ))}
+    </div>
+  </div>
+</Layout>

@@ -1,0 +1,25 @@
+---
+import Dashboard from "../components/Dashboard.svelte";
+// apps/web/src/pages/index.astro — Painel Principal RMGV (SSR fino + ilha reativa)
+import Layout from "../layouts/Layout.astro";
+
+import stationsData from "../../public/data/stations-data.json";
+
+const defaultStationId = "ramqar_camburi";
+
+// Metadados leves p/ o seletor e o GPS (sem os 120 pontos — o bundle é buscado no cliente)
+const stationsMeta = Object.values(stationsData as any).map((item: any) => ({
+	id: item.station.id,
+	name: item.station.name,
+	municipality: item.station.municipality,
+	lat: item.station.lat,
+	lon: item.station.lon,
+	coastal: item.station.coastal,
+	downwind_tubarao: item.station.downwind_tubarao,
+	bridge_proximity: item.station.bridge_proximity,
+}));
+---
+
+<Layout title="AetherML — Previsão de Qualidade do Ar RMGV (5 Dias ML)">
+  <Dashboard client:load stationsMeta={stationsMeta} initialStationId={defaultStationId} />
+</Layout>

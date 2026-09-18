@@ -1,0 +1,197 @@
+---
+import fs from "node:fs";
+import path from "node:path";
+import Icon from "../../components/Icon.svelte";
+import { GUIDES, neighbors } from "../../lib/guides";
+// apps/web/src/pages/docs/[slug].astro — Artigo com sidebar, índice e prev/next
+import Layout from "../../layouts/Layout.astro";
+
+export async function getStaticPaths() {
+	const docsDir = path.resolve("../../docs");
+	const files = fs.readdirSync(docsDir).filter((f) => f.endsWith(".md"));
+
+	return files.map((file) => {
+		const slug = file.replace(".md", "");
+		const fullPath = path.join(docsDir, file);
+		const content = fs.readFileSync(fullPath, "utf-8");
+		return {
+			params: { slug },
+			props: { slug, content, filename: file },
+		};
+	});
+}
+
+const { slug, content, filename } = Astro.props;
+const { prev, next } = neighbors(slug);
+const current = GUIDES.find((g) => g.slug === slug);
+const startGuides = GUIDES.filter((g) => g.track === "start");
+const techGuides = GUIDES.filter((g) => g.track === "tech");
+
+// Conversor Markdown → HTML (claro): tabelas, callouts, código, títulos, listas
+function renderMarkdown(md: string): string {
+	let html = md
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;");
+
+	// Blocos de código
+	html = html.replace(/```([a-z]*)\n([\s\S]*?)```/g, (_, _lang, code) => {
+		return `<pre class="bg-slate-900 p-4 rounded-xl font-mono text-xs text-sky-200 overflow-x-auto my-4 shadow-inner"><code>${code.trim()}</code></pre>`;
+	});
+
+	// Tabelas (| a | b |)
+	html = html.replace(
+		/(?:^\|.*\|\s*\n)+/gm,
+		(block) => {
+			const rows = block
+				.trim()
+				.split("\n")
+				.filter((r) => !/^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?\s*$/.test(r));
+			const cells = rows.map((r) =>
+				r
+					.trim()
+					.replace(/^\||\|$/g, "")
+					.split("|")
+					.map((c) => c.trim()),
+			);
+			if (!cells.length) return block;
+			const [head, ...body] = cells;
+			const th = head
+				.map((h) => `<th class="px-3 py-2 text-left text-[11px] uppercase tracking-wider text-slate-500 font-bold">${h}</th>`)
+				.join("");
+			const tb = body
+				.map(
+					(r, i) =>
+						`<tr class="${i % 2 ? "bg-slate-50" : "bg-white"}">${r
+							.map((c) => `<td class="px-3 py-2 text-[13px] text-slate-700 border-t border-slate-100">${c}</td>`)
+							.join("")}</tr>`,
+				)
+				.join("");
+			return `<div class="overflow-x-auto my-5 rounded-xl border border-slate-200 shadow-sm"><table class="w-full min-w-[560px] border-collapse bg-white"><thead class="bg-slate-100"><tr>${th}</tr></thead><tbody>${tb}</tbody></table></div>`;
+		},
+	);
+
+	// Código inline
+	html = html.replace(
+		/`([^`]+)`/g,
+		'<code class="bg-sky-50 text-sky-800 border border-sky-100 px-1.5 py-0.5 rounded-md font-mono text-xs">$1</code>',
+	);
+
+	// Títulos
+	html = html.replace(/^#### (.*$)/gim, '<h4 class="text-sm font-bold text-slate-800 mt-5 mb-1.5">$1</h4>');
+	html = html.replace(/^### (.*$)/gim, '<h3 class="text-base font-bold text-slate-800 mt-6 mb-2">$1</h3>');
+	html = html.replace(
+		/^## (.*$)/gim,
+		'<h2 class="text-xl font-extrabold text-slate-900 mt-8 mb-3 pb-2 border-b border-slate-200">$1</h2>',
+	);
+	html = html.replace(
+		/^# (.*$)/gim,
+		'<h1 class="text-2xl sm:text-3xl font-black text-slate-900 mb-4 tracking-tight">$1</h1>',
+	);
+
+	// Negrito e itálico
+	html = html.replace(/\*\*([^*]+)\*\*/g, '<strong class="text-slate-900 font-bold">$1</strong>');
+	html = html.replace(/\*([^*]+)\*/g, '<em class="text-slate-600 italic">$1</em>');
+
+	// Listas
+	html = html.replace(/^\s*-\s+(.*$)/gim, '<li class="text-slate-600 text-sm ml-5 list-disc my-1">$1</li>');
+
+	// Divisórias
+	html = html.replace(/^---$/gim, '<hr class="my-6 border-slate-200" />');
+
+	// Parágrafos + callouts (> [!TIPO] e > texto)
+	const paragraphs = html.split(/\n\n+/);
+	return paragraphs
+		.map((p) => {
+			p = p.trim();
+			if (!p) return "";
+			if (p.startsWith("<h") || p.startsWith("<pre") || p.startsWith("<li") || p.startsWith("<div") || p.startsWith("<hr")) {
+				return p;
+			}
+			const callout = p.match(/^&gt; \[!(NOTE|IMPORTANT|WARNING)\]\s*([\s\S]*)$/);
+			if (callout) {
+				const styles: Record<string, string> = {
+					NOTE: "bg-sky-50 border-sky-200 text-sky-900",
+					IMPORTANT: "bg-emerald-50 border-emerald-200 text-emerald-900",
+					WARNING: "bg-amber-50 border-amber-200 text-amber-900",
+				};
+				const s = styles[callout[1]] ?? styles.NOTE;
+				return `<div class="my-4 px-4 py-3 rounded-xl border text-sm leading-relaxed ${s}">${callout[2].replace(/\n&gt; ?/g, "<br />")}</div>`;
+			}
+			if (p.startsWith("&gt;")) {
+				return `<blockquote class="my-4 pl-4 border-l-4 border-sky-200 text-slate-500 italic text-sm">${p.replace(/^&gt; ?/gm, "")}</blockquote>`;
+			}
+			return `<p class="text-slate-600 text-[15px] leading-relaxed my-3">${p}</p>`;
+		})
+		.join("\n");
+}
+
+const renderedHtml = renderMarkdown(content);
+---
+
+<Layout title={current ? `AetherML — ${current.title}` : `AetherML Docs — ${slug}`}>
+  <div class="max-w-6xl mx-auto py-4 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <!-- Sidebar -->
+    <aside class="lg:col-span-3">
+      <div class="lg:sticky lg:top-24 glass-card p-4 max-h-[70vh] overflow-y-auto">
+        <a href="/docs" class="flex items-center gap-2 text-xs font-bold text-sky-700 hover:underline mb-3 px-1">
+          <Icon name="arrowLeft" cls="w-3.5 h-3.5" /> Todos os guias
+        </a>
+        <p class="px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-1">Comece aqui</p>
+        {startGuides.map((g) => (
+          <a href={`/docs/${g.slug}`} class={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors ${g.slug === slug ? "bg-sky-50 text-sky-800 font-bold" : "text-slate-600 hover:bg-slate-100"}`}>
+            <Icon name={g.icon} cls="w-4 h-4 shrink-0" /> {g.title}
+          </a>
+        ))}
+        <p class="px-2 text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-3 mb-1">Técnico</p>
+        {techGuides.map((g) => (
+          <a href={`/docs/${g.slug}`} class={`flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors ${g.slug === slug ? "bg-sky-50 text-sky-800 font-bold" : "text-slate-600 hover:bg-slate-100"}`}>
+            <span class="font-mono text-[11px] text-slate-400 w-6 shrink-0">{g.number}</span> {g.title}
+          </a>
+        ))}
+      </div>
+    </aside>
+
+    <!-- Artigo -->
+    <div class="lg:col-span-9">
+      <div class="mb-4 flex items-center justify-between text-xs text-slate-400">
+        <span class="flex items-center gap-1.5">
+          {current && <Icon name={current.icon} cls="w-4 h-4 text-sky-600" />}
+          <span class="font-semibold text-slate-500">{current?.badge ?? "Guia"}</span>
+        </span>
+        <span class="font-mono bg-slate-100 px-2 py-0.5 rounded border border-slate-200">docs/{filename}</span>
+      </div>
+
+      <article class="glass-card p-6 sm:p-10 leading-relaxed">
+        <div class="max-w-none" set:html={renderedHtml} />
+      </article>
+
+      <div class="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {prev ? (
+          <a href={`/docs/${prev.slug}`} class="glass-card glass-card-hover p-4 group">
+            <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">← Anterior</span>
+            <span class="block text-sm font-bold text-slate-800 group-hover:text-sky-700 mt-0.5">{prev.title}</span>
+          </a>
+        ) : <span />}
+        {next ? (
+          <a href={`/docs/${next.slug}`} class="glass-card glass-card-hover p-4 text-right group">
+            <span class="text-[10px] font-bold uppercase tracking-widest text-slate-400">Próximo →</span>
+            <span class="block text-sm font-bold text-slate-800 group-hover:text-sky-700 mt-0.5">{next.title}</span>
+          </a>
+        ) : <span />}
+      </div>
+    </div>
+  </div>
+
+  <!-- Barra de progresso de leitura -->
+  <script is:inline>
+    const bar = document.createElement('div');
+    bar.style.cssText = 'position:fixed;top:0;left:0;height:3px;width:0;z-index:60;background:linear-gradient(90deg,#0284c7,#10b981)';
+    document.body.appendChild(bar);
+    addEventListener('scroll', () => {
+      const h = document.documentElement;
+      const p = h.scrollTop / Math.max(1, h.scrollHeight - h.clientHeight);
+      bar.style.width = `${Math.round(p * 100)}%`;
+    }, { passive: true });
+  </script>
+</Layout>

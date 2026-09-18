@@ -1,0 +1,9 @@
+---
+import AccuracyDashboard from "../components/AccuracyDashboard.svelte";
+// apps/web/src/pages/precisao.astro — Backtest IA vs Real (holdout 7d)
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="AetherML — Precisão da IA vs Dados Reais">
+  <AccuracyDashboard client:load />
+</Layout>
