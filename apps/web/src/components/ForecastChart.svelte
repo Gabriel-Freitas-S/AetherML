@@ -44,7 +44,10 @@ const xMarkers = $derived.by(() => {
 		marks.push({ h: points[points.length - 1]?.hour ?? 119, label: "+120h" });
 		return marks;
 	}
-	return [0, 6, 12, 18, 24, 30, 36, 42, 47].map((h) => ({ h, label: `+${h}h` }));
+	return [0, 6, 12, 18, 24, 30, 36, 42, 47].map((h) => ({
+		h,
+		label: `+${h}h`,
+	}));
 });
 
 // "Hoje 18/09" / "Sáb 19/09" a partir do timestamp do ponto (fuso de Brasília)
@@ -62,7 +65,9 @@ function tickLabel(h: number, isFirst: boolean): string {
 	const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "";
 	let wd = get("weekday").replace(".", "");
 	wd = wd.charAt(0).toUpperCase() + wd.slice(1);
-	return isFirst ? `Hoje ${get("day")}/${get("month")}` : `${wd} ${get("day")}/${get("month")}`;
+	return isFirst
+		? `Hoje ${get("day")}/${get("month")}`
+		: `${wd} ${get("day")}/${get("month")}`;
 }
 
 function getY(val: number): number {
@@ -90,16 +95,22 @@ const areaD = $derived.by(() => {
 	return `${pathD} L ${lastX} ${baseY} L ${firstX} ${baseY} Z`;
 });
 
-// Hover estável: um único overlay captura o mouse e resolve o ponto mais
-// próximo (120 listeners onmouseenter/onmouseleave causavam flicker).
-function pointFromEvent(e: MouseEvent): void {
+// Hover e Touch scrubbing estável: um único overlay captura ponteiro/toque e resolve o ponto mais
+// próximo com touch-action: pan-y (preservando o scroll vertical no mobile).
+function pointFromEvent(e: MouseEvent | TouchEvent): void {
 	const target = e.currentTarget as SVGRectElement | null;
 	const svg = target?.ownerSVGElement;
 	if (!svg || !points.length) return;
 	const r = svg.getBoundingClientRect();
 	if (r.width === 0) return;
-	const sx = ((e.clientX - r.left) / r.width) * width;
-	const idx = Math.round(((sx - padding.left) / plotWidth) * (points.length - 1));
+	const clientX =
+		"touches" in e && e.touches.length > 0
+			? e.touches[0].clientX
+			: (e as MouseEvent).clientX;
+	const sx = ((clientX - r.left) / r.width) * width;
+	const idx = Math.round(
+		((sx - padding.left) / plotWidth) * (points.length - 1),
+	);
 	hoveredPoint = points[Math.max(0, Math.min(points.length - 1, idx))];
 }
 
@@ -126,24 +137,28 @@ const lineColor = $derived.by(() => {
   <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
     <div>
       <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
-        <span class="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse"></span>
-        Série Preditiva de 5 Dias (120 Horas) por Machine Learning
+        <span class="w-2 h-2 rounded-full bg-sky-600"></span>
+        Evolução Horária em 5 Dias (120h)
       </h3>
-      <p class="text-xs text-slate-500">Previsão horária contínua calculada por modelos LightGBM via WASM SIMD client-side</p>
+      <p class="text-xs text-slate-500">Projeção hora a hora por poluente em conformidade com as diretrizes do CONAMA 491/2018</p>
     </div>
 
     <!-- Seletor de Poluente -->
-    <div class="flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs overflow-x-auto">
+    <div class="flex gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs overflow-x-auto" role="tablist" aria-label="Selecionar poluente ou IQAr">
       {#each [
         { id: 'iqar', label: 'IQAr Global' },
-        { id: 'pm25', label: 'PM2.5' },
-        { id: 'pm10', label: 'PM10' },
+        { id: 'pm25', label: 'PM₂.₅' },
+        { id: 'pm10', label: 'PM₁₀' },
         { id: 'o3', label: 'O₃' },
         { id: 'no2', label: 'NO₂' },
         { id: 'so2', label: 'SO₂' }
       ] as item}
         <button
-          class="px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap {currentPollutant === item.id ? 'bg-gradient-to-r from-sky-600 to-emerald-500 text-white font-bold shadow' : 'text-slate-600 hover:text-slate-900 hover:bg-white'}"
+          role="tab"
+          aria-selected={currentPollutant === item.id}
+          class={currentPollutant === item.id
+            ? "px-3 py-2 rounded-lg whitespace-nowrap cursor-pointer font-bold bg-sky-700 text-white shadow-sm transition-all min-h-[38px] sm:min-h-0"
+            : "px-3 py-2 rounded-lg whitespace-nowrap cursor-pointer font-medium text-slate-600 hover:text-slate-900 hover:bg-white transition-all min-h-[38px] sm:min-h-0"}
           onclick={() => currentPollutant = item.id}
         >
           {item.label}
@@ -293,17 +308,19 @@ const lineColor = $derived.by(() => {
         />
       {/if}
 
-      <!-- Overlay único de hover (por cima de tudo, abaixo do tooltip HTML) -->
+      <!-- Overlay único de hover/touch (por cima de tudo, abaixo do tooltip HTML) -->
       <rect
         x="{padding.left}"
         y="{padding.top}"
         width="{plotWidth}"
         height="{plotHeight}"
         fill="transparent"
-        style="cursor: crosshair"
+        style="cursor: crosshair; touch-action: pan-y;"
         onmousemove={pointFromEvent}
         onmouseleave={() => (hoveredPoint = null)}
         onclick={pointFromEvent}
+        ontouchstart={pointFromEvent}
+        ontouchmove={pointFromEvent}
       />
     </svg>
 

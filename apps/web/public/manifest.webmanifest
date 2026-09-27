@@ -2,16 +2,37 @@
 	"name": "AetherML — Qualidade do Ar RMGV",
 	"short_name": "AetherML",
 	"description": "Previsão inteligente e descentralizada da qualidade do ar (CONAMA 491) para a Grande Vitória.",
+	"id": "/",
 	"start_url": "/",
+	"scope": "/",
 	"display": "standalone",
-	"background_color": "#090d16",
-	"theme_color": "#06b6d4",
+	"orientation": "portrait-primary",
+	"background_color": "#f8fafc",
+	"theme_color": "#0284c7",
+	"categories": ["weather", "health", "utilities"],
 	"icons": [
 		{
+			"src": "/pwa-192x192.png",
+			"sizes": "192x192",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/pwa-512x512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "any"
+		},
+		{
+			"src": "/maskable-icon-512x512.png",
+			"sizes": "512x512",
+			"type": "image/png",
+			"purpose": "maskable"
+		},
+		{
 			"src": "/favicon.svg",
-			"sizes": "192x192 512x512",
-			"type": "image/svg+xml",
-			"purpose": "any maskable"
+			"sizes": "any",
+			"type": "image/svg+xml"
 		}
 	]
 }

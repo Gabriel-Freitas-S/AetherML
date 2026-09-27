@@ -5,8 +5,18 @@ import RmgvMap from "../components/Map.svelte";
 // apps/web/src/pages/mapa.astro — Visualização Cartográfica Detalhada
 import Layout from "../layouts/Layout.astro";
 
+const nowMs = Date.now();
 const stationsList = Object.values(stationsData as any).map((item: any) => {
-	const res = globalIQAr(item.points[0].observed);
+	let currentPoint = item.points[0];
+	let minDiff = Math.abs(new Date(currentPoint.timestamp).getTime() - nowMs);
+	for (let i = 1; i < item.points.length; i++) {
+		const diff = Math.abs(new Date(item.points[i].timestamp).getTime() - nowMs);
+		if (diff < minDiff) {
+			minDiff = diff;
+			currentPoint = item.points[i];
+		}
+	}
+	const res = globalIQAr(currentPoint.observed);
 	return {
 		...item.station,
 		latitude: item.station.latitude ?? item.station.lat,
@@ -16,10 +26,38 @@ const stationsList = Object.values(stationsData as any).map((item: any) => {
 		primary: res.primary,
 	};
 });
+
+function badgeClass(cls?: string): string {
+	switch (cls) {
+		case "Boa":
+			return "badge-boa";
+		case "Moderada":
+			return "badge-moderada";
+		case "Ruim":
+			return "badge-ruim";
+		case "Muito Ruim":
+			return "badge-muitoruim";
+		default:
+			return "badge-pessima";
+	}
+}
+
+const DEFAULT_IQAR_ICON = "i-ph-shield-warning-fill";
+const IQAR_ICONS: Record<string, string> = {
+	Boa: "i-ph-check-circle-fill",
+	Moderada: "i-ph-warning-circle-fill",
+	Ruim: "i-ph-warning-fill",
+	"Muito Ruim": "i-ph-warning-octagon-fill",
+	Péssima: DEFAULT_IQAR_ICON,
+};
+
+function iqarIcon(cls?: string): string {
+	return (cls && IQAR_ICONS[cls]) || DEFAULT_IQAR_ICON;
+}
 ---
 
 <Layout title="AetherML — Mapa Espacial da Grande Vitória">
-  <div class="mb-6">
+  <div class="mb-6 anim-fade-up">
     <div class="glass-card px-5 py-4 relative overflow-hidden">
       <div class="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-sky-500 to-transparent"></div>
       <h1 class="text-2xl font-extrabold text-slate-900 flex items-center gap-2 tracking-tight">
@@ -32,7 +70,7 @@ const stationsList = Object.values(stationsData as any).map((item: any) => {
     </div>
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 anim-fade-up-d1">
     <!-- Mapa Principal -->
     <div class="lg:col-span-2">
       <RmgvMap client:only="svelte" stations={stationsList} />
@@ -48,11 +86,9 @@ const stationsList = Object.values(stationsData as any).map((item: any) => {
               <h4 class="text-sm font-bold text-slate-800">{s.name}</h4>
               <p class="text-xs text-slate-500">{s.municipality}</p>
             </div>
-            <span class={`chip !text-[11px] font-mono font-bold ${
-              s.classification === 'Boa' ? 'badge-boa' :
-              s.classification === 'Moderada' ? 'badge-moderada' : 'badge-ruim'
-            }`}>
-              {s.iqar}
+            <span class={`chip !text-[11px] font-mono font-bold ${badgeClass(s.classification)} flex items-center gap-1`}>
+              <span class={`${iqarIcon(s.classification)} w-3.5 h-3.5`}></span>
+              <span>{s.iqar}</span>
             </span>
           </div>
           <div class="mt-2 text-[11px] text-slate-500 flex items-center justify-between">

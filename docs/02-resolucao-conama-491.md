@@ -6,23 +6,23 @@ O cálculo do Índice de Qualidade do Ar (IQAr) no AetherML segue rigorosamente 
 
 ## 1. Formulação Matemática do Índice Individual
 
-Para cada poluente (PM2.5, PM10, O3, NO2, SO2), a pontuação individual é calculada por interpolação linear dentro da faixa de concentração em que a concentração observada ou prevista se enquadra:
+Para cada poluente ($PM_{2.5}, PM_{10}, O_3, NO_2, SO_2$), a pontuação individual $I_p$ é calculada por interpolação linear dentro da faixa de concentração em que a concentração observada ou prevista se enquadra:
 
-`I = I_ini + (I_fim - I_ini) / (C_fim - C_ini) * (C - C_ini)`
+$$I_p = I_{ini} + \frac{I_{fim} - I_{ini}}{C_{fim} - C_{ini}} \cdot (C_p - C_{ini})$$
 
 Onde:
 
-- `C`: concentração média do poluente (em µg/m³).
-- `C_ini, C_fim`: limites inferior e superior da faixa de concentração.
-- `I_ini, I_fim`: pontuações regulatórias inicial e final da faixa.
+- $C_p$: concentração média do poluente (em µg/m³).
+- $C_{ini}, C_{fim}$: limites inferior e superior da faixa de concentração.
+- $I_{ini}, I_{fim}$: pontuações regulatórias inicial e final da faixa.
 
 ---
 
 ## 2. Determinação do IQAr Consolidado Global
 
-O índice consolidado da estação ou região é determinado pelo **pior caso** entre todos os poluentes avaliados:
+O índice consolidado da estação ou região é determinado pelo **pior caso** (maior valor) entre todos os poluentes avaliados:
 
-`IQAr_global = max(I_p)`
+$$IQAr_{global} = \max_{p} \{ I_p \}$$
 
 O poluente associado ao maior valor é o **Poluente Crítico Primário**.
 

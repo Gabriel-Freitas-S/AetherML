@@ -10,7 +10,7 @@ import {
 	saveStationId,
 } from "../lib/location";
 import ForecastChart from "./ForecastChart.svelte";
-import Icon from "./Icon.svelte";
+
 import LocationBar from "./LocationBar.svelte";
 import RmgvMap from "./Map.svelte";
 import Waterfall from "./Waterfall.svelte";
@@ -31,9 +31,11 @@ interface StationMeta {
 const {
 	stationsMeta = [],
 	initialStationId = "ramqar_camburi",
+	initialBundle = null,
 }: {
 	stationsMeta: StationMeta[];
 	initialStationId?: string;
+	initialBundle?: Record<string, any> | null;
 } = $props();
 
 let activeId = $state(initialStationId);
@@ -41,7 +43,7 @@ let source = $state<"saved" | "gps" | "default" | "fallback" | "manual">(
 	"default",
 );
 let gpsDistance = $state<number | null>(null);
-let bundle = $state<Record<string, any> | null>(null);
+let bundle = $state<Record<string, any> | null>(initialBundle);
 let loadError = $state<string | null>(null);
 
 function coordsOf(s: any): { latitude: number; longitude: number } {
@@ -78,7 +80,20 @@ const points = $derived.by(() => {
 	});
 });
 
-const currentPoint = $derived.by(() => points[0] ?? null);
+const currentPoint = $derived.by(() => {
+	if (!points.length) return null;
+	const now = Date.now();
+	let best = points[0];
+	let minDiff = Math.abs(new Date(best.timestamp).getTime() - now);
+	for (let i = 1; i < points.length; i++) {
+		const diff = Math.abs(new Date(points[i].timestamp).getTime() - now);
+		if (diff < minDiff) {
+			minDiff = diff;
+			best = points[i];
+		}
+	}
+	return best;
+});
 
 // Lista p/ o mapa (normalizada p/ latitude/longitude)
 const stationsList = $derived.by(() => {
@@ -98,31 +113,62 @@ const stationsList = $derived.by(() => {
 	});
 });
 
-const FALLBACK_DAY_NAMES = ["Hoje", "Amanhã", "Dia 3", "Dia 4", "Dia 5"];
+function getLocalDateStr(date: Date): string {
+	return new Intl.DateTimeFormat("en-CA", {
+		timeZone: "America/Sao_Paulo",
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).format(date);
+}
 
-// "Sex 19/09" a partir do timestamp da primeira hora do dia (fuso de Brasília);
-// o 1º cartão mantém o prefixo "Hoje · ".
-function dayLabel(pts: any[], dayIdx: number): string {
-	const p = pts[dayIdx * 24];
-	if (!p?.timestamp) return FALLBACK_DAY_NAMES[dayIdx] ?? `Dia ${dayIdx + 1}`;
-	const d = new Date(p.timestamp);
+function formatDayCardLabel(dateStr: string, isToday: boolean): string {
+	const [y, m, d] = dateStr.split("-").map(Number);
+	const date = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
 	const parts = new Intl.DateTimeFormat("pt-BR", {
 		timeZone: "America/Sao_Paulo",
 		weekday: "short",
 		day: "2-digit",
 		month: "2-digit",
-	}).formatToParts(d);
+	}).formatToParts(date);
 	const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "";
 	let wd = get("weekday").replace(".", "");
 	wd = wd.charAt(0).toUpperCase() + wd.slice(1);
 	const label = `${wd} ${get("day")}/${get("month")}`;
-	return dayIdx === 0 ? `Hoje · ${label}` : label;
+	return isToday ? `Hoje · ${label}` : label;
 }
+
 const fiveDaysForecast = $derived.by(() => {
 	if (!points.length) return [];
-	return [0, 1, 2, 3, 4]
-		.map((dayIdx) => {
-			const dayPoints = points.slice(dayIdx * 24, (dayIdx + 1) * 24);
+	const todayStr = getLocalDateStr(new Date());
+	const groups = new Map<string, any[]>();
+	for (const p of points) {
+		const dStr = getLocalDateStr(new Date(p.timestamp));
+		if (dStr < todayStr) continue;
+		const arr = groups.get(dStr) ?? [];
+		arr.push(p);
+		groups.set(dStr, arr);
+	}
+
+	let sortedDates = Array.from(groups.keys()).sort();
+	if (sortedDates.length === 0) {
+		const fallbackGroups = new Map<string, any[]>();
+		for (const p of points) {
+			const dStr = getLocalDateStr(new Date(p.timestamp));
+			const arr = fallbackGroups.get(dStr) ?? [];
+			arr.push(p);
+			fallbackGroups.set(dStr, arr);
+		}
+		sortedDates = Array.from(fallbackGroups.keys()).sort();
+		for (const [k, v] of fallbackGroups.entries()) {
+			groups.set(k, v);
+		}
+	}
+
+	const targetDates = sortedDates.slice(0, 5);
+	return targetDates
+		.map((dateStr, dayIdx) => {
+			const dayPoints = groups.get(dateStr) ?? [];
 			if (!dayPoints.length) return null;
 			const maxIqar = Math.max(...dayPoints.map((p: any) => p.iqar));
 			const avgIqar = Math.round(
@@ -131,9 +177,11 @@ const fiveDaysForecast = $derived.by(() => {
 			);
 			const peakPoint =
 				dayPoints.find((p: any) => p.iqar === maxIqar) ?? dayPoints[0];
+			const isToday = dateStr === todayStr || dayIdx === 0;
 			return {
 				dayNumber: dayIdx + 1,
-				label: dayLabel(points, dayIdx),
+				date: dateStr,
+				label: formatDayCardLabel(dateStr, isToday),
 				maxIqar,
 				avgIqar,
 				classification: peakPoint.classification,
@@ -210,6 +258,53 @@ function iqarHex(cls?: string): string {
 	}
 }
 
+function iqarTextColor(cls?: string): string {
+	switch (cls) {
+		case "Boa":
+			return "#047857";
+		case "Moderada":
+			return "#b45309";
+		case "Ruim":
+			return "#c2410c";
+		case "Muito Ruim":
+			return "#b91c1c";
+		default:
+			return "#7e22ce";
+	}
+}
+
+const DEFAULT_IQAR_ICON = "i-ph-shield-warning-fill";
+const IQAR_ICONS: Record<string, string> = {
+	Boa: "i-ph-check-circle-fill",
+	Moderada: "i-ph-warning-circle-fill",
+	Ruim: "i-ph-warning-fill",
+	"Muito Ruim": "i-ph-warning-octagon-fill",
+	Péssima: DEFAULT_IQAR_ICON,
+};
+
+function iqarIcon(cls?: string): string {
+	return (cls && IQAR_ICONS[cls]) || DEFAULT_IQAR_ICON;
+}
+
+function formatPollutantName(pol?: string): string {
+	switch (String(pol).toLowerCase()) {
+		case "pm25":
+			return "PM₂.₅";
+		case "pm10":
+			return "PM₁₀";
+		case "o3":
+			return "O₃";
+		case "no2":
+			return "NO₂";
+		case "so2":
+			return "SO₂";
+		case "co":
+			return "CO";
+		default:
+			return String(pol ?? "").toUpperCase();
+	}
+}
+
 function advice(cls?: string): string {
 	switch (cls) {
 		case "Boa":
@@ -225,7 +320,84 @@ function advice(cls?: string): string {
 	}
 }
 
-onMount(async () => {
+let refreshing = $state(false);
+let lastUpdated = $state<string | null>(null);
+
+async function fetchLiveOpenMeteoFallback(targetId: string) {
+	try {
+		const st = stationsMeta.find((s) => s.id === targetId) ?? stationsMeta[0];
+		if (!st) return;
+		const lat = st.lat ?? st.latitude ?? -20.2764;
+		const lon = st.lon ?? st.longitude ?? -40.2881;
+		const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide&past_days=1&forecast_days=6&timezone=America%2FSao_Paulo`;
+		const res = await fetch(url);
+		if (!res.ok) return;
+		const data = await res.json();
+		const h = data.hourly;
+		if (!h?.time?.length) return;
+
+		const pts = h.time.map((t: string, i: number) => {
+			const ts = t.endsWith("Z") ? t : `${t}:00Z`;
+			return {
+				hour: i,
+				timestamp: ts,
+				observed: {
+					pm25: h.pm2_5?.[i] ?? 10,
+					pm10: h.pm10?.[i] ?? 15,
+					o3: h.ozone?.[i] ?? 30,
+					no2: h.nitrogen_dioxide?.[i] ?? 12,
+					so2: h.sulphur_dioxide?.[i] ?? 5,
+				},
+			};
+		});
+
+		if (bundle) {
+			bundle[targetId] = {
+				station: st,
+				points: pts,
+			};
+			bundle = { ...bundle };
+		}
+	} catch (err) {
+		console.warn("[LiveFallback] Falha ao consultar Open-Meteo ao vivo:", err);
+	}
+}
+
+async function loadForecastData(forceRefresh = false) {
+	refreshing = true;
+	try {
+		const url = forceRefresh
+			? `/data/stations-data.json?t=${Date.now()}`
+			: "/data/stations-data.json";
+		const res = await fetch(url, {
+			cache: forceRefresh ? "reload" : "default",
+		});
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		bundle = await res.json();
+		loadError = null;
+		lastUpdated = new Intl.DateTimeFormat("pt-BR", {
+			timeZone: "America/Sao_Paulo",
+			hour: "2-digit",
+			minute: "2-digit",
+		}).format(new Date());
+
+		// Se o bundle salvo estiver vencido, busca Open-Meteo ao vivo automaticamente
+		const pts = bundle?.[activeId]?.points;
+		const lastPt = pts?.[pts.length - 1];
+		if (lastPt && new Date(lastPt.timestamp).getTime() < Date.now()) {
+			await fetchLiveOpenMeteoFallback(activeId);
+		}
+	} catch (e) {
+		if (!bundle) {
+			loadError =
+				"Falha ao carregar dados das estações. Verifique sua conexão.";
+		}
+	} finally {
+		refreshing = false;
+	}
+}
+
+onMount(() => {
 	// 1) Resolve estação inicial: salva > GPS silencioso (só se não há salva) > default
 	const stored = loadStationId();
 	const normList = stationsMeta.map((s) => ({ ...s, ...coordsOf(s as any) }));
@@ -234,33 +406,57 @@ onMount(async () => {
 		activeId = r.stationId;
 		source = "saved";
 	} else {
-		try {
-			const pos = await getUserPosition(5000);
-			const r = resolveActiveStation(normList as any, {
-				userLat: pos.lat,
-				userLon: pos.lon,
-				defaultId: initialStationId,
+		getUserPosition(5000)
+			.then((pos) => {
+				const r = resolveActiveStation(normList as any, {
+					userLat: pos.lat,
+					userLon: pos.lon,
+					defaultId: initialStationId,
+				});
+				activeId = r.stationId;
+				source = r.reason === "gps" ? "gps" : "default";
+				if (r.reason === "gps") {
+					const n = nearestStation(pos.lat, pos.lon, normList as any);
+					gpsDistance = Math.round(n.distanceKm * 10) / 10;
+				}
+				saveStationId(activeId);
+			})
+			.catch(() => {
+				activeId = initialStationId;
+				source = "default";
 			});
-			activeId = r.stationId;
-			source = r.reason === "gps" ? "gps" : "default";
-			if (r.reason === "gps") {
-				const n = nearestStation(pos.lat, pos.lon, normList as any);
-				gpsDistance = Math.round(n.distanceKm * 10) / 10;
-			}
-			saveStationId(activeId);
-		} catch {
-			activeId = initialStationId;
-			source = "default";
+	}
+
+	// 2) Carrega dados completos das 9 estações em background
+	loadForecastData(false);
+
+	// 3) Revalidação automática ao retornar à aba
+	function onVisibilityChange() {
+		if (document.visibilityState === "visible") {
+			loadForecastData();
 		}
 	}
-	// 2) Carrega dados (cache NetworkFirst do SW)
-	try {
-		const res = await fetch("/data/stations-data.json");
-		if (!res.ok) throw new Error(`HTTP ${res.status}`);
-		bundle = await res.json();
-	} catch (e) {
-		loadError = "Falha ao carregar dados das estações. Verifique sua conexão.";
+	document.addEventListener("visibilitychange", onVisibilityChange);
+
+	// 4) Revalidação automática ao voltar a ficar online
+	function onOnline() {
+		loadForecastData(true);
 	}
+	window.addEventListener("online", onOnline);
+
+	// 5) Polling leve a cada 10 minutos para manter a previsão sempre atualizada
+	const interval = setInterval(
+		() => {
+			loadForecastData();
+		},
+		10 * 60 * 1000,
+	);
+
+	return () => {
+		document.removeEventListener("visibilitychange", onVisibilityChange);
+		window.removeEventListener("online", onOnline);
+		clearInterval(interval);
+	};
 });
 </script>
 
@@ -292,76 +488,127 @@ onMount(async () => {
   </div>
 {:else}
   <!-- Hero / Cabeçalho de Status -->
-  <section class="mt-6 mb-8">
+  <section class="mt-6 mb-8 anim-fade-up">
     <div class="glass-card p-6 md:p-8 bg-gradient-to-br from-white via-sky-50/70 to-emerald-50/60 relative overflow-hidden">
       <div class="absolute -right-24 -top-24 w-[420px] h-[420px] rounded-full blur-3xl pointer-events-none" style="background: {iqarHex(currentPoint.classification)}18"></div>
       <div class="absolute -left-16 -bottom-24 w-72 h-72 bg-sky-200/50 rounded-full blur-3xl pointer-events-none"></div>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center relative">
         <div class="lg:col-span-2">
-          <div class="flex items-center gap-2 text-[11px] font-bold tracking-widest text-sky-700 mb-2.5 uppercase">
-            <span class="relative flex w-2 h-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-500 opacity-60"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
-            </span>
-            RAMQAr (IEMA) &bull; {activeStation.name}
+          <div class="flex items-center gap-2 text-[11px] font-bold tracking-widest text-sky-800 mb-2.5 uppercase">
+            <span class="w-2 h-2 rounded-full bg-sky-600"></span>
+            Monitoramento Oficial RAMQAr &bull; {activeStation.name}
           </div>
-          <h1 class="text-2xl sm:text-3xl lg:text-[2.6rem] leading-tight font-extrabold text-slate-900 tracking-tight">
-            Qualidade do Ar em <span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-600 via-sky-500 to-emerald-500">{activeStation.municipality || "Vitória e Região"}</span>
+          <h1 class="text-2xl sm:text-3xl lg:text-[2.5rem] leading-tight font-extrabold text-slate-900 tracking-tight">
+            Qualidade do Ar em <span class="text-sky-700">{activeStation.municipality || "Grande Vitória"}</span>
           </h1>
           <p class="text-slate-600 text-sm mt-2.5 max-w-2xl leading-relaxed">
-            Previsão de 5 dias (120h) para <strong class="text-slate-900">{activeStation.name}</strong>, calculada no seu dispositivo via WebAssembly SIMD-128 com explicabilidade física Saabas.
+            Previsão horária contínua para os próximos 5 dias em <strong class="text-slate-900">{activeStation.name}</strong>, classificada segundo as diretrizes de saúde da Resolução CONAMA 491/2018.
           </p>
 
-          <div class="mt-4 flex items-center gap-2.5 flex-wrap">
-            <div class="chip bg-emerald-50 border-emerald-200 text-emerald-700">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              Open-Meteo DB-First · <strong class="font-mono">0 cotas</strong>
-            </div>
-            <a href={`/estacao/${activeId}`} class="chip bg-slate-100 border-slate-200 text-slate-700 hover:border-sky-400 hover:text-sky-700 transition-colors">
-              Diagnóstico completo <Icon name="arrowRight" cls="w-3.5 h-3.5" />
+          <div class="mt-4 flex items-center gap-3 flex-wrap">
+            <button
+              onclick={() => loadForecastData(true)}
+              disabled={refreshing}
+              class="btn-ghost inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 border border-slate-300 rounded-xl hover:bg-slate-50 transition-colors disabled:opacity-60 cursor-pointer"
+              title="Atualizar dados de previsão imediatamente"
+              aria-label="Atualizar dados de previsão"
+            >
+              {#if refreshing}
+                <span class="i-ph-spinner-bold w-3.5 h-3.5 animate-spin"></span>
+              {:else}
+                <span class="i-ph-arrow-clockwise-bold w-3.5 h-3.5 text-sky-600"></span>
+              {/if}
+              <span>{refreshing ? "Atualizando..." : "Atualizar previsão"}</span>
+            </button>
+            {#if lastUpdated}
+              <div class="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                <span class="i-ph-clock-fill w-3.5 h-3.5 text-slate-400"></span>
+                <span>Atualizado às <strong class="font-mono text-slate-700">{lastUpdated}</strong></span>
+              </div>
+            {/if}
+            <a href={`/estacao/${activeId}`} class="inline-flex items-center gap-1 text-xs text-sky-700 hover:text-sky-800 font-semibold hover:underline ml-auto sm:ml-0">
+              Série histórica e sensores <span class="i-ph-arrow-right-bold w-3 h-3"></span>
             </a>
           </div>
+
+          <!-- Gaveta expansível: Dados Técnicos & Auditoria do Modelo (para técnicos e pesquisadores) -->
+          <details class="mt-4 rounded-xl border border-slate-200/90 bg-white/70 p-3 text-xs text-slate-600">
+            <summary class="cursor-pointer font-semibold text-slate-700 hover:text-sky-700 flex items-center gap-2 select-none">
+              <span class="i-ph-sliders-horizontal-bold w-4 h-4 text-sky-600"></span>
+              <span>Dados Técnicos do Modelo & Auditoria (RAMQAr / IEMA)</span>
+            </summary>
+            <div class="mt-2.5 pt-2.5 border-t border-slate-200/80 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
+              <div>
+                <span class="text-slate-400 block">Classificação oficial:</span>
+                <strong class="text-slate-700">CONAMA 491/2018 (5 faixas)</strong>
+              </div>
+              <div>
+                <span class="text-slate-400 block">Rede meteorológica:</span>
+                <strong class="text-slate-700">Open-Meteo DB-First (cache local)</strong>
+              </div>
+              <div>
+                <span class="text-slate-400 block">Explicabilidade:</span>
+                <strong class="text-slate-700">Atribuição física Saabas (O(K·D))</strong>
+              </div>
+            </div>
+            <div class="mt-2 flex items-center gap-3 pt-2 border-t border-slate-100 text-[11px]">
+              <a href="/precisao" class="text-sky-700 hover:underline font-semibold flex items-center gap-1">
+                Ver métricas de precisão (R², MAE) <span class="i-ph-arrow-up-right-bold w-3 h-3"></span>
+              </a>
+              <span class="text-slate-300">&bull;</span>
+              <a href="/docs" class="text-sky-700 hover:underline font-semibold flex items-center gap-1">
+                Especificação técnica <span class="i-ph-arrow-up-right-bold w-3 h-3"></span>
+              </a>
+            </div>
+          </details>
         </div>
 
-        <div class="relative bg-white border border-slate-200 p-6 rounded-2xl flex flex-col items-center justify-center text-center shadow-xl overflow-hidden">
+        <div class="relative bg-white border border-slate-200 p-6 rounded-2xl flex flex-col items-center justify-center text-center shadow-lg overflow-hidden">
           <div class="absolute top-0 inset-x-0 h-1" style="background: linear-gradient(90deg, transparent, {iqarHex(currentPoint.classification)}, transparent)"></div>
-          <span class="text-[10px] uppercase font-bold tracking-[0.18em] text-slate-500 mb-1">IQAr atual · tempo real</span>
-          <div class="text-5xl sm:text-6xl font-black font-mono my-1 tabular-nums" style="color: {iqarHex(currentPoint.classification)}">
+          <span class="text-[10px] uppercase font-bold tracking-[0.16em] text-slate-500 mb-1">Índice IQAr Atual</span>
+          <div class="text-5xl sm:text-6xl font-black font-mono my-1 tabular-nums" style="color: {iqarTextColor(currentPoint.classification)}">
             {currentPoint.iqar}
           </div>
-          <div class={`chip mt-1 font-bold ${badgeClass(currentPoint.classification)}`}>
-            {currentPoint.classification} · {String(currentPoint.primary).toUpperCase()}
+          <div class={`chip mt-1.5 font-bold ${badgeClass(currentPoint.classification)} flex items-center gap-1.5`}>
+            <span class={`${iqarIcon(currentPoint.classification)} w-3.5 h-3.5`}></span>
+            <span>{currentPoint.classification}</span>
+            <span class="opacity-60">&bull;</span>
+            <span>{formatPollutantName(currentPoint.primary)}</span>
           </div>
-          <p class="text-[11px] text-slate-500 mt-3 leading-snug max-w-[240px]">
+          <div class="mt-3.5 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-left text-xs text-slate-700 leading-snug w-full">
+            <span class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Recomendação de Saúde:</span>
             {advice(currentPoint.classification)}
-          </p>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
   <!-- 5 dias -->
-  <section class="mb-8">
+  <section class="mb-8 anim-fade-up-d1">
     <div class="mb-3 flex items-center justify-between">
-      <h2 class="section-title"><span class="section-dot"></span>Prognóstico de 5 dias · ML</h2>
-      <span class="text-xs text-slate-500 font-mono">120h contínuas (CONAMA 491)</span>
+      <h2 class="section-title"><span class="section-dot"></span>Prognóstico para 5 dias</h2>
+      <span class="text-xs text-slate-500">120 horas contínuas (Resolução CONAMA 491)</span>
     </div>
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+    <div class="flex sm:grid sm:grid-cols-3 lg:grid-cols-5 gap-3.5 overflow-x-auto pb-2 snap-x snap-mandatory">
       {#each fiveDaysForecast as day}
-        <div class="glass-card glass-card-hover p-4 text-center relative overflow-hidden">
+        <div class="glass-card glass-card-hover p-4 text-center relative overflow-hidden min-w-[145px] sm:min-w-0 snap-start flex-1" style="animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) {0.05 + 0.04 * (day?.dayNumber ?? 0)}s both">
           <div class="absolute top-0 inset-x-0 h-0.5" style="background: {iqarHex(day.classification)}"></div>
           <div class="text-[11px] text-slate-500 font-bold uppercase tracking-widest">{day.label}</div>
           <div class="text-3xl font-black font-mono my-1.5 text-slate-900 tabular-nums">{day.avgIqar}</div>
-          <span class={`chip !text-[10px] font-bold ${badgeClass(day.classification)}`}>{day.classification}</span>
-          <div class="text-[11px] text-slate-500 mt-2 font-mono">Pico {day.maxIqar} · {day.primary}</div>
+          <span class={`chip !text-[10px] font-bold ${badgeClass(day.classification)} flex items-center justify-center gap-1`}>
+            <span class={`${iqarIcon(day.classification)} w-3 h-3`}></span>
+            <span>{day.classification}</span>
+          </span>
+          <div class="text-[11px] text-slate-500 mt-2 font-mono">Pico {day.maxIqar} · {formatPollutantName(day.primary)}</div>
         </div>
       {/each}
     </div>
   </section>
 
   <!-- Mapa + gráfico -->
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8 anim-fade-up-d2 content-visibility-auto">
     <div class="lg:col-span-5">
       <div class="mb-3 flex items-center justify-between">
         <h2 class="section-title"><span class="section-dot"></span>Distribuição espacial</h2>
@@ -373,14 +620,14 @@ onMount(async () => {
     <div class="lg:col-span-7">
       <div class="mb-3 flex items-center justify-between">
         <h2 class="section-title"><span class="section-dot !bg-emerald-400"></span>Previsão contínua · 120h</h2>
-        <span class="text-xs text-slate-500 font-mono">WASM &lt; 2ms</span>
+        <span class="text-xs text-slate-500">Atualização horária contínua</span>
       </div>
       <ForecastChart points={points} activePollutant="iqar" />
     </div>
   </div>
 
   <!-- XAI + diretrizes -->
-  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8">
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8 anim-fade-up-d3 content-visibility-auto">
     <div class="lg:col-span-8">
       <Waterfall
         contributions={saabas}
@@ -401,10 +648,10 @@ onMount(async () => {
       </div>
 
       <div class="space-y-2 text-xs border-t border-slate-200 pt-4 text-slate-500">
-        <div class="flex justify-between items-center"><span>Horizonte:</span><strong class="text-sky-700 font-mono">5 dias · 120h</strong></div>
-        <div class="flex justify-between items-center"><span>Inferência:</span><strong class="text-slate-700 font-mono">ONNX SIMD-128</strong></div>
-        <div class="flex justify-between items-center"><span>Cache:</span><strong class="text-emerald-700 font-mono">0 chamadas Open-Meteo</strong></div>
-        <div class="flex justify-between items-center"><span>Referência:</span><strong class="text-slate-700">{activeStation.name}</strong></div>
+        <div class="flex justify-between items-center"><span>Horizonte de previsão:</span><strong class="text-sky-700 font-mono">5 dias (120h)</strong></div>
+        <div class="flex justify-between items-center"><span>Padrão regulatório:</span><strong class="text-slate-700 font-mono">CONAMA 491/2018</strong></div>
+        <div class="flex justify-between items-center"><span>Estação de referência:</span><strong class="text-slate-700">{activeStation.name}</strong></div>
+        <div class="flex justify-between items-center"><span>Município:</span><strong class="text-slate-700">{activeStation.municipality}</strong></div>
       </div>
     </div>
   </div>

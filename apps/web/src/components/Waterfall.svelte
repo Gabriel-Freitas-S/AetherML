@@ -81,8 +81,9 @@ function getNaturalLanguageExplanation(item: SaabasContribution): string {
         <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
         Explicabilidade Algorítmica (Saabas XAI)
       </h3>
-      <span class="text-xs bg-sky-50 text-sky-700 px-2.5 py-1 rounded-full border border-sky-200 font-mono">
-        O(K·D) Linear &bull; sub-1ms
+      <span class="text-xs bg-sky-50 text-sky-700 px-2.5 py-1 rounded-full border border-sky-200 inline-flex items-center gap-1.5 font-mono">
+        <span class="katex"><span class="katex-html" aria-hidden="true"><span class="katex-base"><span class="mord mathcal" style="margin-right:0.0278em;">O</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.0715em;">K</span><span class="mbin">⋅</span><span class="mord mathnormal" style="margin-right:0.0278em;">D</span><span class="mclose">)</span></span></span></span>
+        <span>Linear &bull; sub-1ms</span>
       </span>
     </div>
     <p class="text-xs text-slate-500 mt-1">
@@ -134,7 +135,27 @@ function getNaturalLanguageExplanation(item: SaabasContribution): string {
 
   <!-- Rodapé com Balanço Aditivo -->
   <div class="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-    <span>Valor Basal Médio (Φ₀): <strong class="text-slate-700 font-mono">{baseValue} µg/m³</strong></span>
-    <span class="text-slate-500">ŷ = Φ₀ + Σ Φᵢ</span>
+    <span class="flex items-center gap-1.5">
+      <span>Valor Basal Médio</span>
+      <span class="katex inline-block"><span class="katex-html" aria-hidden="true"><span class="katex-base"><span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>:
+      <strong class="text-slate-700 font-mono">{baseValue} µg/m³</strong>
+    </span>
+    <span class="katex inline-block text-slate-700 font-medium" aria-label="ŷ = Φ₀ + Σ Φᵢ">
+      <span class="katex-html" aria-hidden="true">
+        <span class="katex-base">
+          <span class="mord mathnormal">y</span><span class="accent-body" style="left:-0.18em;"><span class="mord">^</span></span>
+          <span class="mspace" style="margin-right:0.25em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.25em;"></span>
+        </span>
+        <span class="katex-base">
+          <span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span>
+          <span class="mspace" style="margin-right:0.2em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2em;"></span>
+        </span>
+        <span class="katex-base">
+          <span class="mop op-symbol small-op">∑</span>
+          <span class="mspace" style="margin-right:0.15em;"></span>
+          <span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span>
+        </span>
+      </span>
+    </span>
   </div>
 </div>

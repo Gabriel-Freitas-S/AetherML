@@ -1,7 +1,5 @@
 <!-- apps/web/src/components/StationPicker.svelte — Dropdown custom de estações (substitui o <select> nativo) -->
 <script lang="ts">
-import Icon from "./Icon.svelte";
-
 interface StationMeta {
 	id: string;
 	name: string;
@@ -23,7 +21,9 @@ const {
 let open = $state(false);
 let root = $state<HTMLElement | null>(null);
 
-const active = $derived.by(() => stations.find((s) => s.id === activeId) ?? null);
+const active = $derived.by(
+	() => stations.find((s) => s.id === activeId) ?? null,
+);
 
 function close() {
 	open = false;
@@ -60,14 +60,14 @@ $effect(() => {
     aria-label={label}
     class="w-full flex items-center gap-2 text-left bg-white border border-slate-300 rounded-xl pl-3 pr-2.5 py-2 text-sm font-medium text-slate-800 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 transition-all cursor-pointer hover:border-sky-400"
   >
-    <Icon name="pin" cls="w-4 h-4 text-sky-600 shrink-0" />
+    <span class="i-ph-map-pin-fill w-4 h-4 text-sky-600 shrink-0"></span>
     <span class="flex-1 min-w-0">
       <span class="block truncate">{active?.name ?? "Selecione a estação"}</span>
       {#if active?.municipality}
         <span class="block text-[11px] font-normal text-slate-500 truncate">{active.municipality} · RAMQAr</span>
       {/if}
     </span>
-    <Icon name="chevron" cls={`w-4 h-4 text-slate-500 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+    <span class={`i-ph-caret-down-bold w-4 h-4 text-slate-500 shrink-0 transition-transform ${open ? "rotate-180" : ""}`}></span>
   </button>
 
   {#if open}
@@ -94,7 +94,7 @@ $effect(() => {
               {/if}
             </span>
             {#if selected}
-              <Icon name="check" cls="w-4 h-4 text-sky-600 shrink-0" />
+              <span class="i-ph-check-bold w-4 h-4 text-sky-600 shrink-0"></span>
             {/if}
           </button>
         </li>

@@ -249,7 +249,7 @@ export async function getWeatherDataWithQuotaGuard(params: {
 		if (res.ok) {
 			const data = (await res.json()) as OpenMeteoResponse;
 			const hourly = data.hourly;
-			if (hourly && hourly.time && hourly.time.length > 0) {
+			if (hourly?.time && hourly.time.length > 0) {
 				const fetchedRecords: EnvironmentalRecord[] = hourly.time.map(
 					(timeStr: string, idx: number) => {
 						const speed = hourly.wind_speed_10m?.[idx] ?? 3.5;

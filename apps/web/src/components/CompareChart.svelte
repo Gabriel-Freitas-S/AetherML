@@ -5,7 +5,7 @@ const {
 	real = [],
 	pred = [],
 	unit = "µg/m³",
-	color = "#34d399",
+	color = "#059669",
 	title = "Real vs IA",
 	version = "",
 }: {
@@ -40,7 +40,8 @@ function getY(v: number): number {
 }
 function lineOf(arr: number[]): string {
 	return arr.reduce(
-		(acc, v, i) => (i === 0 ? `M ${getX(i)} ${getY(v)}` : `${acc} L ${getX(i)} ${getY(v)}`),
+		(acc, v, i) =>
+			i === 0 ? `M ${getX(i)} ${getY(v)}` : `${acc} L ${getX(i)} ${getY(v)}`,
 		"",
 	);
 }
@@ -59,15 +60,25 @@ function shortLabel(iso: string): string {
 	return `${d}/${m} ${h}h`;
 }
 
-// Hover estável via overlay único (mesmo motivo do ForecastChart).
-function indexFromEvent(e: MouseEvent): void {
+// Hover e Touch scrubbing estável via overlay único (mesmo motivo do ForecastChart).
+function indexFromEvent(e: MouseEvent | TouchEvent): void {
 	const target = e.currentTarget as SVGRectElement | null;
 	const svg = target?.ownerSVGElement;
 	if (!svg || !real.length) return;
 	const r = svg.getBoundingClientRect();
 	if (r.width === 0) return;
-	const sx = ((e.clientX - r.left) / r.width) * width;
-	hovered = Math.max(0, Math.min(real.length - 1, Math.round(((sx - padding.left) / plotWidth) * (real.length - 1))));
+	const clientX =
+		"touches" in e && e.touches.length > 0
+			? e.touches[0].clientX
+			: (e as MouseEvent).clientX;
+	const sx = ((clientX - r.left) / r.width) * width;
+	hovered = Math.max(
+		0,
+		Math.min(
+			real.length - 1,
+			Math.round(((sx - padding.left) / plotWidth) * (real.length - 1)),
+		),
+	);
 }
 </script>
 
@@ -105,17 +116,19 @@ function indexFromEvent(e: MouseEvent): void {
         <circle cx="{getX(hovered)}" cy="{getY(pred[hovered])}" r="5" fill="#0f172a" stroke={color} stroke-width="2" stroke-dasharray="2 1" pointer-events="none" />
       {/if}
 
-      <!-- Overlay único de hover -->
+      <!-- Overlay único de hover/touch -->
       <rect
         x="{padding.left}"
         y="{padding.top}"
         width="{plotWidth}"
         height="{plotHeight}"
         fill="transparent"
-        style="cursor: crosshair"
+        style="cursor: crosshair; touch-action: pan-y;"
         onmousemove={indexFromEvent}
         onmouseleave={() => (hovered = null)}
         onclick={indexFromEvent}
+        ontouchstart={indexFromEvent}
+        ontouchmove={indexFromEvent}
       />
     </svg>
 

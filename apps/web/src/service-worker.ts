@@ -1,21 +1,28 @@
 // apps/web/src/service-worker.ts — PWA Service Worker (specs/06)
-// Estratégias multinível: CacheFirst (modelos/shell/wasm) · NetworkFirst (meteo) · SWR (telemetria)
+// Estratégias multinível: CacheFirst (modelos/shell/wasm) · NetworkFirst (meteo/data) · SWR (telemetria)
 
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-const CACHE_SHELL = "aetherml-shell-v1";
-const CACHE_MODELS = "aetherml-models-v1";
-const CACHE_TILES = "aetherml-tiles-v1";
-const CACHE_DATA = "aetherml-data-v1";
+const CACHE_SHELL = "aetherml-shell-v3";
+const CACHE_MODELS = "aetherml-models-v3";
+const CACHE_TILES = "aetherml-tiles-v3";
+const CACHE_DATA = "aetherml-data-v3";
 
 const STATIC_ASSETS = [
 	"/",
 	"/offline.html",
 	"/manifest.webmanifest",
 	"/favicon.svg",
+	"/favicon-32x32.png",
+	"/apple-touch-icon.png",
+	"/pwa-192x192.png",
+	"/pwa-512x512.png",
+	"/maskable-icon-512x512.png",
 	"/models/registry.json",
 	"/data/stations-data.json",
+	"/data/model-eval.json",
+	"/leaflet/leaflet.css",
 ];
 
 self.addEventListener("install", (event) => {
@@ -51,6 +58,12 @@ self.addEventListener("activate", (event) => {
 	);
 });
 
+self.addEventListener("message", (event) => {
+	if (event.data?.type === "SKIP_WAITING") {
+		self.skipWaiting();
+	}
+});
+
 self.addEventListener("fetch", (event) => {
 	const { request } = event;
 	const url = new URL(request.url);
@@ -80,14 +93,33 @@ self.addEventListener("fetch", (event) => {
 				if (cached) return cached;
 				try {
 					const res = await fetch(request);
-					if (res.ok) {
-						const keys = await cache.keys();
-						if (keys.length > 200) await cache.delete(keys[0]); // LRU simples
-						cache.put(request, res.clone());
+					if (res.ok || res.type === "opaque") {
+						try {
+							const keys = await cache.keys();
+							if (keys.length > 200) await cache.delete(keys[0]); // LRU simples
+							await cache.put(request, res.clone());
+						} catch {
+							// Ignora se o browser limitar cache de requisição opaca
+						}
 					}
 					return res;
 				} catch {
-					return cached || new Response("", { status: 408 });
+					if (cached) return cached;
+					// Retorna PNG 1x1 transparente para evitar ícone de imagem quebrada se estiver offline
+					return new Response(
+						new Uint8Array([
+							137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0,
+							0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 10,
+							73, 68, 65, 84, 120, 156, 99, 96, 0, 0, 0, 2, 0, 1, 244, 113, 100,
+							166, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+						]),
+						{
+							headers: {
+								"Content-Type": "image/png",
+								"Cache-Control": "no-cache",
+							},
+						},
+					);
 				}
 			}),
 		);
@@ -104,12 +136,21 @@ self.addEventListener("fetch", (event) => {
 				.then(async (res) => {
 					if (res.ok) {
 						const cache = await caches.open(CACHE_DATA);
-						cache.put(request, res.clone());
+						await cache.put(request, res.clone());
+						if (url.search) {
+							const cleanUrl = new URL(request.url);
+							cleanUrl.search = "";
+							await cache.put(new Request(cleanUrl.toString()), res.clone());
+						}
 					}
 					return res;
 				})
 				.catch(async () => {
-					const cached = await caches.match(request);
+					const cache = await caches.open(CACHE_DATA);
+					const cached =
+						(await cache.match(request)) ||
+						(await cache.match(request, { ignoreSearch: true })) ||
+						(await cache.match("/data/stations-data.json"));
 					if (cached) return cached;
 					return new Response(
 						JSON.stringify({ error: "offline", offline: true }),

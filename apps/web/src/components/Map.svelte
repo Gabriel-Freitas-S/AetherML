@@ -10,7 +10,6 @@ import {
 	tileUrl,
 } from "../lib/basemaps";
 import { loadBasemap, saveBasemap } from "../lib/location";
-import Icon from "./Icon.svelte";
 
 interface StationWithStatus {
 	id: string;
@@ -130,11 +129,15 @@ function setBasemap(style: BasemapStyle) {
 	saveBasemap(style);
 	if (!map || !Leaflet) return;
 	if (tileLayer) map.removeLayer(tileLayer);
+	const isOsm = style === "osm";
 	tileLayer = Leaflet.tileLayer(tileUrl(style), {
-		attribution: "&copy; OpenStreetMap &copy; CARTO",
+		attribution: isOsm
+			? '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'
+			: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
+		subdomains: isOsm ? "abc" : "abcd",
 		maxZoom: 19,
+		crossOrigin: true,
 	}).addTo(map);
-	// Voyager/positron são claros: controles escuros continuam legíveis por terem fundo próprio
 }
 
 async function locateUser() {
@@ -204,6 +207,28 @@ onMount(async () => {
 	L.control.zoom({ position: "bottomright" }).addTo(map);
 	setBasemap(basemap);
 	buildMarkers();
+
+	// Garante que o Leaflet calcule as dimensões reais após o render do CSS
+	const timer = window.setTimeout(() => {
+		if (map) map.invalidateSize();
+	}, 150);
+
+	let ro: ResizeObserver | null = null;
+	if (typeof ResizeObserver !== "undefined" && mapContainer) {
+		ro = new ResizeObserver(() => {
+			if (map) map.invalidateSize();
+		});
+		ro.observe(mapContainer);
+	}
+
+	return () => {
+		window.clearTimeout(timer);
+		if (ro) ro.disconnect();
+		if (map) {
+			map.remove();
+			map = null;
+		}
+	};
 });
 
 // Reconstroi pins quando os dados ou a seleção mudam
@@ -223,10 +248,7 @@ $effect(() => {
   <div class="absolute top-3 left-3 z-[400] flex flex-col gap-2 max-w-[240px]">
     <div class="bg-white/92 border border-slate-200 backdrop-blur-xl rounded-xl px-3 py-2.5 shadow-xl">
       <div class="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-        <span class="relative flex w-2 h-2">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-500 opacity-60"></span>
-          <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-500"></span>
-        </span>
+        <span class="w-2 h-2 rounded-full bg-sky-600"></span>
         Rede RAMQAr (IEMA/ES)
       </div>
       <div class="text-slate-500 text-[11px] mt-0.5">9 estações · IQAr CONAMA 491</div>
@@ -236,7 +258,9 @@ $effect(() => {
           <button
             onclick={() => setBasemap(style)}
             title="Basemap {BASEMAP_LABELS[style]} (CARTO)"
-            class="flex-1 px-2 py-1 rounded-md text-[10px] font-bold transition-all {basemap === style ? 'bg-sky-600 text-white shadow' : 'text-slate-600 hover:bg-white'}"
+            class={basemap === style
+              ? "flex-1 px-2 py-1.5 rounded-md text-[10px] font-bold bg-sky-700 text-white shadow-sm transition-all min-h-[32px] cursor-pointer"
+              : "flex-1 px-2 py-1.5 rounded-md text-[10px] font-bold text-slate-700 hover:bg-white transition-all min-h-[32px] cursor-pointer"}
           >
             {BASEMAP_LABELS[style]}
           </button>
@@ -248,16 +272,13 @@ $effect(() => {
     <button
       onclick={locateUser}
       disabled={locating}
-      class="btn-ghost !bg-white/92 backdrop-blur-xl shadow-xl disabled:opacity-60"
+      class="btn-ghost !bg-white/92 backdrop-blur-xl shadow-xl disabled:opacity-60 min-h-[44px] cursor-pointer"
     >
       {#if locating}
-        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-        </svg>
+        <span class="i-ph-spinner-bold w-4 h-4 animate-spin"></span>
         Localizando…
       {:else}
-        <Icon name="crosshair" cls="w-4 h-4 text-sky-600" />
+        <span class="i-ph-crosshair-fill w-4 h-4 text-sky-600"></span>
         <span class="text-sky-700">Estação mais próxima</span>
       {/if}
     </button>
@@ -332,11 +353,16 @@ $effect(() => {
   :global(.aq-pop-sub) { font-size: 11px; color: #64748b; margin-bottom: 8px; }
   :global(.aq-pop-iqar) {
     display: flex; align-items: center; gap: 8px;
-    background: color-mix(in srgb, var(--c) 12%, white);
-    border-left: 3px solid var(--c);
-    padding: 6px 10px; border-radius: 8px; font-size: 12px; color: #334155;
+    background: color-mix(in srgb, var(--c) 10%, white);
+    border: 1px solid color-mix(in srgb, var(--c) 25%, #cbd5e1);
+    padding: 6px 10px; border-radius: 8px; font-size: 12px; color: #1e293b;
   }
   :global(.aq-pop-iqar strong) { font-family: 'JetBrains Mono', monospace; font-size: 15px; color: #0f172a; }
-  :global(.aq-pop-link) { display: block; margin-top: 8px; font-size: 11px; color: #0284c7; font-weight: 700; }
+  :global(.aq-pop-link) { display: block; margin-top: 8px; font-size: 11px; color: #0369a1; font-weight: 700; }
   :global(.leaflet-container) { font-family: 'Outfit', sans-serif; background: #e8eef4; }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.aq-pin-ring) {
+      animation: none !important;
+    }
+  }
 </style>

@@ -2,7 +2,7 @@
 <script lang="ts">
 import { nearestStation } from "@aetherml/geo";
 import { getUserPosition } from "../lib/location";
-import Icon from "./Icon.svelte";
+
 import StationPicker from "./StationPicker.svelte";
 
 interface StationMeta {
@@ -47,8 +47,17 @@ async function useGps() {
 		const list = stations.map((s) => ({ ...s, ...coordsOf(s) }));
 		const nearest = nearestStation(pos.lat, pos.lon, list as any);
 		if (onChange) onChange(nearest.station.id, "gps");
-	} catch {
-		gpsError = "GPS indisponível — escolha uma estação abaixo.";
+	} catch (err: any) {
+		if (err?.code === 1) {
+			gpsError =
+				"Permissão de localização bloqueada no navegador. Escolha uma estação na lista ao lado.";
+		} else if (err?.code === 3 || err?.message?.includes("Tempo esgotado")) {
+			gpsError =
+				"Tempo limite para obter GPS esgotado. Tente novamente ou selecione sua estação na lista.";
+		} else {
+			gpsError =
+				"Não foi possível obter sua localização atual. Selecione sua estação na lista.";
+		}
 	} finally {
 		gpsLoading = false;
 	}
@@ -66,7 +75,7 @@ const sourceLabel: Record<string, string> = {
 <div class="glass-card relative z-30 p-4 flex flex-col md:flex-row md:items-center gap-3">
   <div class="flex items-center gap-2.5 min-w-0">
     <div class="w-9 h-9 rounded-xl bg-sky-50 border border-sky-200 flex items-center justify-center shrink-0">
-      <Icon name="pin" cls="w-5 h-5 text-sky-600" />
+      <span class="i-ph-map-pin-fill w-5 h-5 text-sky-600"></span>
     </div>
     <div class="min-w-0">
       <div class="text-xs font-bold text-slate-800 truncate">
@@ -85,15 +94,15 @@ const sourceLabel: Record<string, string> = {
     <StationPicker
       stations={stations}
       activeId={activeId}
-      onChange={(id) => onChange?.(id, "manual")}
+      onChange={(id) => {
+        gpsError = null;
+        onChange?.(id, "manual");
+      }}
       label="Selecionar estação de monitoramento"
     />
-    <button onclick={useGps} disabled={gpsLoading} class="btn-primary whitespace-nowrap min-h-[44px] disabled:opacity-60">
+    <button onclick={useGps} disabled={gpsLoading} class="btn-primary whitespace-nowrap min-h-[44px] disabled:opacity-60 cursor-pointer">
       {#if gpsLoading}
-        <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-          <path class="opacity-90" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-        </svg>
+        <span class="i-ph-spinner-bold w-4 h-4 animate-spin"></span>
         Localizando…
       {:else}
         Usar minha localização
@@ -102,6 +111,14 @@ const sourceLabel: Record<string, string> = {
   </div>
 
   {#if gpsError}
-    <div class="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 md:basis-full">{gpsError}</div>
+    <div class="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 md:basis-full flex items-center justify-between gap-2" role="alert">
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span class="i-ph-warning-circle-fill w-4 h-4 text-amber-600 shrink-0"></span>
+        <span>{gpsError}</span>
+      </div>
+      <button onclick={() => (gpsError = null)} class="text-amber-700 hover:text-amber-950 p-1 rounded hover:bg-amber-100/60 transition-colors cursor-pointer shrink-0" aria-label="Dispensar aviso de GPS">
+        <span class="i-ph-x-bold w-3.5 h-3.5"></span>
+      </button>
+    </div>
   {/if}
 </div>

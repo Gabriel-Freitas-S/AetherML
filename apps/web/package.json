@@ -3,22 +3,29 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
+		"build:sw": "esbuild src/service-worker.ts --bundle --outfile=public/service-worker.js --minify --format=iife",
+		"predev": "pnpm run build:sw",
 		"dev": "astro dev --host",
+		"prebuild": "pnpm run build:sw",
 		"build": "astro build",
-		"preview": "astro preview"
+		"preview": "astro preview",
+		"test": "node --test test/**/*.test.ts"
 	},
 	"dependencies": {
 		"@aetherml/core-iqar": "workspace:*",
 		"@aetherml/geo": "workspace:*",
 		"@aetherml/inference-client": "workspace:*",
 		"@astrojs/svelte": "^5.7.0",
+		"@types/katex": "^0.16.8",
 		"astro": "^4.16.0",
+		"katex": "^0.18.9",
 		"leaflet": "^1.9.4",
 		"onnxruntime-web": "^1.19.0",
 		"svelte": "^5.0.0",
 		"unocss": "^0.62.0"
 	},
 	"devDependencies": {
+		"@iconify-json/ph": "^1.2.2",
 		"@types/leaflet": "^1.9.12",
 		"typescript": "^5.5.0"
 	}

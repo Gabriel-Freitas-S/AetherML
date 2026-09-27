@@ -6,8 +6,9 @@ import Layout from "../layouts/Layout.astro";
 import stationsData from "../../public/data/stations-data.json";
 
 const defaultStationId = "ramqar_camburi";
+const defaultStationData = (stationsData as any)[defaultStationId];
 
-// Metadados leves p/ o seletor e o GPS (sem os 120 pontos — o bundle é buscado no cliente)
+// Metadados leves p/ o seletor e o GPS (sem os 120 pontos — o bundle completo é buscado no cliente)
 const stationsMeta = Object.values(stationsData as any).map((item: any) => ({
 	id: item.station.id,
 	name: item.station.name,
@@ -18,8 +19,17 @@ const stationsMeta = Object.values(stationsData as any).map((item: any) => ({
 	downwind_tubarao: item.station.downwind_tubarao,
 	bridge_proximity: item.station.bridge_proximity,
 }));
+
+const initialBundle = defaultStationData
+	? { [defaultStationId]: defaultStationData }
+	: null;
 ---
 
 <Layout title="AetherML — Previsão de Qualidade do Ar RMGV (5 Dias ML)">
-  <Dashboard client:load stationsMeta={stationsMeta} initialStationId={defaultStationId} />
+  <Dashboard
+    client:load
+    stationsMeta={stationsMeta}
+    initialStationId={defaultStationId}
+    initialBundle={initialBundle}
+  />
 </Layout>

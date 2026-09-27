@@ -1,5 +1,7 @@
 ---
- // apps/web/src/layouts/Layout.astro — Tema claro
+// apps/web/src/layouts/Layout.astro — Tema claro
+import "katex/dist/katex.min.css";
+
 interface Props {
 	title?: string;
 	description?: string;
@@ -9,26 +11,42 @@ const {
 	title = "AetherML — Previsão de Qualidade do Ar RMGV (5 Dias ML)",
 	description = "Previsão inteligente horária de 5 dias e classificação regulatória CONAMA 491/2018 para a Grande Vitória via WebAssembly na borda.",
 } = Astro.props;
+
+const currentPath = Astro.url.pathname;
+function isActive(href: string): boolean {
+	if (href === "/") return currentPath === "/";
+	return currentPath.startsWith(href);
+}
+function navClass(href: string): string {
+	return isActive(href)
+		? "px-3.5 py-1.5 rounded-full bg-white text-sky-700 font-bold shadow-sm"
+		: "px-3.5 py-1.5 rounded-full text-slate-500 hover:bg-white hover:text-sky-700 hover:shadow-sm transition-all";
+}
+function mobileNavClass(href: string): string {
+	return isActive(href)
+		? "flex items-center min-h-[44px] px-3.5 py-2.5 rounded-xl text-sky-950 font-bold bg-sky-50 transition-colors"
+		: "flex items-center min-h-[44px] px-3.5 py-2.5 rounded-xl text-slate-700 hover:bg-slate-100 transition-colors";
+}
 ---
 
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>{title}</title>
   <meta name="description" content={description} />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="alternate icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#0284c7" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="AetherML" />
 
-  <!-- Leaflet CSS -->
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
+  <!-- Leaflet CSS (Self-hosted para PWA offline-first) -->
+  <link rel="stylesheet" href="/leaflet/leaflet.css" />
 
   <!-- Google Fonts: Outfit + JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -41,6 +59,7 @@ const {
   <style is:global>
     html {
       scroll-behavior: smooth;
+      -webkit-tap-highlight-color: transparent;
     }
     body {
       font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -52,8 +71,11 @@ const {
       color: #0f172a;
       min-height: 100vh;
       overflow-x: hidden;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-left: env(safe-area-inset-left, 0px);
+      padding-right: env(safe-area-inset-right, 0px);
     }
-    font-mono {
+    .font-mono {
       font-family: 'JetBrains Mono', monospace;
     }
     ::selection {
@@ -68,6 +90,103 @@ const {
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; border: 2px solid #f6f9fc; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+    /* ─── Animações de entrada e movimento natural ─── */
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+    .anim-fade-up {
+      animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .anim-fade-up-d1 { animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.05s both; }
+    .anim-fade-up-d2 { animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.10s both; }
+    .anim-fade-up-d3 { animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.15s both; }
+    .anim-fade-up-d4 { animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.20s both; }
+    .anim-fade-up-d5 { animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both; }
+    .anim-fade-in {
+      animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    /* ─── Otimização de Renderização Offscreen (LCP / TBT) ─── */
+    .content-visibility-auto {
+      content-visibility: auto;
+      contain-intrinsic-size: 0 500px;
+    }
+    /* ─── Menu Hambúrguer Animado (morphing suave para X) ─── */
+    .hamburger-box {
+      width: 20px;
+      height: 14px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+    .hamburger-bar {
+      display: block;
+      width: 100%;
+      height: 2px;
+      border-radius: 9999px;
+      background-color: #334155;
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, background-color 0.2s ease;
+      transform-origin: center;
+    }
+    #nav-toggle:hover .hamburger-bar {
+      background-color: #0284c7;
+    }
+    #nav-toggle[aria-expanded="true"] .top-bar {
+      transform: translateY(6px) rotate(45deg);
+    }
+    #nav-toggle[aria-expanded="true"] .mid-bar {
+      opacity: 0;
+      transform: scaleX(0);
+    }
+    #nav-toggle[aria-expanded="true"] .bot-bar {
+      transform: translateY(-6px) rotate(-45deg);
+    }
+
+    #mobile-nav:not(.hidden) {
+      animation: mobileNavDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    @keyframes mobileNavDown {
+      from {
+        opacity: 0;
+        transform: translateY(-6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+      }
+      .anim-fade-up,
+      .anim-fade-up-d1,
+      .anim-fade-up-d2,
+      .anim-fade-up-d3,
+      .anim-fade-up-d4,
+      .anim-fade-up-d5,
+      .anim-fade-in,
+      #mobile-nav:not(.hidden) {
+        animation: none !important;
+        transform: none !important;
+      }
+      .hamburger-bar {
+        transition: none !important;
+      }
+    }
   </style>
 </head>
 <body class="flex flex-col min-h-screen antialiased">
@@ -78,8 +197,8 @@ const {
       <a href="/" class="flex items-center gap-2.5 group">
         <img src="/favicon.svg" alt="AetherML" class="w-9 h-9 rounded-xl shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform" />
         <div>
-          <span class="font-extrabold text-lg tracking-tight text-slate-900 flex items-center gap-1">
-            Aether<span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-600 to-emerald-500">ML</span>
+          <span class="font-extrabold text-lg tracking-tight text-slate-900 flex items-center gap-0.5">
+            Aether<span class="text-sky-600 font-extrabold">ML</span>
           </span>
           <span class="text-[10px] text-slate-500 block -mt-1 tracking-widest uppercase">RMGV &bull; 5 Dias ML</span>
         </div>
@@ -87,30 +206,42 @@ const {
 
       <!-- Links de Navegação -->
       <nav class="hidden md:flex items-center gap-1 text-sm font-medium bg-slate-100 border border-slate-200 rounded-full px-1.5 py-1" aria-label="Navegação principal">
-        <a href="/" class="px-3.5 py-1.5 rounded-full text-slate-800 hover:bg-white hover:text-sky-700 hover:shadow-sm transition-all">Dashboard</a>
-        <a href="/mapa" class="px-3.5 py-1.5 rounded-full text-slate-500 hover:bg-white hover:text-sky-700 hover:shadow-sm transition-all">Mapa RMGV</a>
-        <a href="/precisao" class="px-3.5 py-1.5 rounded-full text-slate-500 hover:bg-white hover:text-sky-700 hover:shadow-sm transition-all">Precisão IA</a>
-        <a href="/docs" class="px-3.5 py-1.5 rounded-full text-slate-500 hover:bg-white hover:text-sky-700 hover:shadow-sm transition-all">
+        <a href="/" class={navClass("/")}>Dashboard</a>
+        <a href="/mapa" class={navClass("/mapa")}>Mapa RMGV</a>
+        <a href="/precisao" class={navClass("/precisao")}>Precisão IA</a>
+        <a href="/docs" class={navClass("/docs")}>
           Docs &bull; CONAMA 491
         </a>
       </nav>
 
       <div class="flex items-center gap-2">
-        <!-- Badges de Status -->
-        <div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-700 font-semibold">
-          <span class="relative flex w-2 h-2">
-            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-60"></span>
-            <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span>WASM SIMD</span>
+        <!-- Indicador de Status Offline dinâmico -->
+        <div id="connection-status" class="hidden items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-[11px] text-amber-700 font-semibold" role="status" aria-live="polite">
+          <span class="i-ph-wifi-slash-fill w-3.5 h-3.5"></span>
+          <span>Modo Offline</span>
         </div>
-        <div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-sky-50 border border-sky-200 text-[11px] text-sky-700 font-semibold">
-          <span>DB-First</span>
-        </div>
-        <!-- Hambúrguer mobile -->
-        <button id="nav-toggle" class="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 transition-colors" aria-label="Abrir menu" aria-expanded="false" aria-controls="mobile-nav">
-          <svg id="icon-open" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="2.6" rx="1.3"/><rect x="3" y="10.7" width="18" height="2.6" rx="1.3"/><rect x="3" y="16.4" width="18" height="2.6" rx="1.3"/></svg>
-          <svg id="icon-close" class="w-5 h-5 hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6.4 5a1 1 0 0 0-1.4 1.4L10.6 12 5 17.6A1 1 0 1 0 6.4 19L12 13.4 17.6 19a1 1 0 1 0 1.4-1.4L13.4 12l5.6-5.6A1 1 0 1 0 17.6 5L12 10.6z"/></svg>
+
+        <!-- Botão Instalar App PWA -->
+        <button id="pwa-install-btn" class="hidden items-center gap-1.5 px-3.5 py-2 rounded-full bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer min-h-[44px]" aria-label="Instalar aplicativo AetherML">
+          <span class="i-ph-download-simple-bold w-3.5 h-3.5"></span>
+          <span>Instalar App</span>
+        </button>
+
+        <!-- Hambúrguer mobile animado (área de toque 44x44px, transição suave para X) -->
+        <button
+          id="nav-toggle"
+          type="button"
+          class="md:hidden inline-flex items-center justify-center w-11 h-11 min-w-[44px] min-h-[44px] rounded-xl bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200 hover:border-slate-300 active:scale-95 transition-all cursor-pointer focus-visible:outline-2 focus-visible:outline-sky-500"
+          aria-label="Abrir menu"
+          aria-expanded="false"
+          aria-controls="mobile-nav"
+        >
+          <span class="sr-only">Menu de navegação</span>
+          <div class="hamburger-box" aria-hidden="true">
+            <span class="hamburger-bar top-bar"></span>
+            <span class="hamburger-bar mid-bar"></span>
+            <span class="hamburger-bar bot-bar"></span>
+          </div>
         </button>
       </div>
     </div>
@@ -118,10 +249,10 @@ const {
     <!-- Painel mobile -->
     <nav id="mobile-nav" class="md:hidden hidden border-t border-slate-200 bg-white/95 backdrop-blur-xl" aria-label="Navegação móvel">
       <div class="px-4 py-3 flex flex-col gap-1 text-sm font-medium">
-        <a href="/" class="px-3 py-2.5 rounded-xl text-slate-800 font-bold bg-sky-50 transition-colors">Dashboard</a>
-        <a href="/mapa" class="px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 transition-colors">Mapa RMGV</a>
-        <a href="/precisao" class="px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 transition-colors">Precisão IA</a>
-        <a href="/docs" class="px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-100 transition-colors">Docs &bull; CONAMA 491</a>
+        <a href="/" class={mobileNavClass("/")}>Dashboard</a>
+        <a href="/mapa" class={mobileNavClass("/mapa")}>Mapa RMGV</a>
+        <a href="/precisao" class={mobileNavClass("/precisao")}>Precisão IA</a>
+        <a href="/docs" class={mobileNavClass("/docs")}>Docs &bull; CONAMA 491</a>
       </div>
     </nav>
   </header>
@@ -131,8 +262,8 @@ const {
     <slot />
   </main>
 
-  <!-- Rodapé -->
-  <footer class="bg-white/70 backdrop-blur border-t border-slate-200 py-6 text-center text-xs text-slate-500">
+  <!-- Rodapé com safe-area inset bottom -->
+  <footer class="bg-white/70 backdrop-blur border-t border-slate-200 pt-6 text-center text-xs text-slate-500" style="padding-bottom: max(1.5rem, calc(1.5rem + env(safe-area-inset-bottom, 0px)))">
     <div class="max-w-7xl mx-auto px-4 flex flex-col gap-3">
       <nav class="flex items-center justify-center gap-4" aria-label="Rodapé">
         <a href="/" class="hover:text-sky-700 transition-colors font-semibold">Dashboard</a>
@@ -156,40 +287,112 @@ const {
     </div>
   </footer>
 
-  <!-- Registro do Service Worker para PWA Offline -->
+  <!-- Registro e Invalidação de Cache do Service Worker -->
   <script is:inline>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js').catch((err) => {
-          console.warn('[PWA] Service Worker registration failed:', err);
+    // 1. Purga proativa de caches legados v1 na thread principal
+    if ('caches' in window) {
+      caches.keys().then((keys) => {
+        keys.forEach((key) => {
+          if (key.includes('-v1')) {
+            console.log('[PWA] Purgando cache legado:', key);
+            caches.delete(key);
+          }
         });
       });
     }
-    // Menu mobile
+
+    // 2. Registro com verificação forçada de update no SW
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/service-worker.js').then((reg) => {
+          reg.update();
+        }).catch((err) => {
+          console.warn('[PWA] Service Worker registration failed:', err);
+        });
+
+        let refreshing = false;
+        const hadController = Boolean(navigator.serviceWorker.controller);
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (hadController && !refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
+      });
+    }
+    // Menu mobile com animação de hambúrguer para X
     const toggle = document.getElementById('nav-toggle');
     const panel = document.getElementById('mobile-nav');
-    const iconOpen = document.getElementById('icon-open');
-    const iconClose = document.getElementById('icon-close');
     if (toggle && panel) {
       toggle.addEventListener('click', () => {
-        const open = panel.classList.toggle('hidden');
-        toggle.setAttribute('aria-expanded', String(!open));
-        if (iconOpen && iconClose) {
-          iconOpen.classList.toggle('hidden', !open);
-          iconClose.classList.toggle('hidden', open);
-        }
+        const isHidden = panel.classList.contains('hidden');
+        panel.classList.toggle('hidden', !isHidden);
+        toggle.setAttribute('aria-expanded', String(isHidden));
+        toggle.setAttribute('aria-label', isHidden ? 'Fechar menu' : 'Abrir menu');
       });
       panel.querySelectorAll('a').forEach((a) => {
         a.addEventListener('click', () => {
           panel.classList.add('hidden');
           toggle.setAttribute('aria-expanded', 'false');
-          if (iconOpen && iconClose) {
-            iconOpen.classList.remove('hidden');
-            iconClose.classList.add('hidden');
-          }
+          toggle.setAttribute('aria-label', 'Abrir menu');
         });
       });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !panel.classList.contains('hidden')) {
+          panel.classList.add('hidden');
+          toggle.setAttribute('aria-expanded', 'false');
+          toggle.setAttribute('aria-label', 'Abrir menu');
+          toggle.focus();
+        }
+      });
     }
+
+    // PWA Install Prompt & Online/Offline Status
+    let deferredPrompt = null;
+    const installBtn = document.getElementById('pwa-install-btn');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      if (installBtn) {
+        installBtn.classList.remove('hidden');
+        installBtn.classList.add('inline-flex');
+      }
+    });
+
+    if (installBtn) {
+      installBtn.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          installBtn.classList.add('hidden');
+          installBtn.classList.remove('inline-flex');
+        }
+        deferredPrompt = null;
+      });
+    }
+
+    window.addEventListener('appinstalled', () => {
+      if (installBtn) {
+        installBtn.classList.add('hidden');
+        installBtn.classList.remove('inline-flex');
+      }
+    });
+
+    const statusEl = document.getElementById('connection-status');
+    function updateOnlineStatus() {
+      if (!statusEl) return;
+      if (navigator.onLine) {
+        statusEl.classList.add('hidden');
+        statusEl.classList.remove('inline-flex');
+      } else {
+        statusEl.classList.remove('hidden');
+        statusEl.classList.add('inline-flex');
+      }
+    }
+    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('offline', updateOnlineStatus);
+    updateOnlineStatus();
   </script>
 </body>
 </html>
