@@ -1,1 +1,64 @@
-node_modules
+# Dependencies & Package Managers
+node_modules/
+**/node_modules/
+.pnpm-store/
+**/.pnpm-store/
+
+# Build outputs & Bundles
+dist/
+**/dist/
+build/
+**/build/
+out/
+**/out/
+.astro/
+**/.astro/
+apps/web/public/service-worker.js
+
+# Cache & Temporary files
+.cache/
+**/.cache/
+.turbo/
+.parcel-cache/
+*.tsbuildinfo
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python caches
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Cloudflare & Wrangler local state
+.wrangler/
+**/.wrangler/
+.dev.vars*
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Tool-specific state & scratchpads
+.impeccable/
+graphify-out/cache/
+tmp/
+temp/
