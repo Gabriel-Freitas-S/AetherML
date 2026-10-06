@@ -1,102 +1,47 @@
 ---
 import { globalIQAr } from "@aetherml/core-iqar";
 import stationsData from "../../public/data/stations-data.json";
-import RmgvMap from "../components/Map.svelte";
-// apps/web/src/pages/mapa.astro — Visualização Cartográfica Detalhada
+import DashboardShell from "../components/DashboardShell.svelte";
+// apps/web/src/pages/mapa.astro — rota preservada da seção "Mapa"
+//
+// A rota NÃO foi apagada: ela renderiza o MESMO painel de `/`, com a seção
+// "Mapa" já selecionada. É o que mantém um link antigo, um QR code em documento
+// técnico ou uma URL colada em e-mail abrindo a seção certa, e é o que faz a aba
+// funcionar sem JavaScript (`href` da aba = esta rota).
+//
+// `client:load` e não `client:only`: com SSR o mapa, a legenda e a lista das 9
+// estações chegam como HTML. A única coisa que precisa do browser é a instância
+// Leaflet, criada em `onMount`.
 import Layout from "../layouts/Layout.astro";
+import { currentPoint } from "../lib/current-point";
+import { dominantConcentration } from "../lib/dashboard-sections";
 
 const nowMs = Date.now();
-const stationsList = Object.values(stationsData as any).map((item: any) => {
-	let currentPoint = item.points[0];
-	let minDiff = Math.abs(new Date(currentPoint.timestamp).getTime() - nowMs);
-	for (let i = 1; i < item.points.length; i++) {
-		const diff = Math.abs(new Date(item.points[i].timestamp).getTime() - nowMs);
-		if (diff < minDiff) {
-			minDiff = diff;
-			currentPoint = item.points[i];
-		}
-	}
-	const res = globalIQAr(currentPoint.observed);
-	return {
-		...item.station,
-		latitude: item.station.latitude ?? item.station.lat,
-		longitude: item.station.longitude ?? item.station.lon,
-		iqar: res.iqar,
-		classification: res.classification,
-		primary: res.primary,
-	};
-});
-
-function badgeClass(cls?: string): string {
-	switch (cls) {
-		case "Boa":
-			return "badge-boa";
-		case "Moderada":
-			return "badge-moderada";
-		case "Ruim":
-			return "badge-ruim";
-		case "Muito Ruim":
-			return "badge-muitoruim";
-		default:
-			return "badge-pessima";
-	}
-}
-
-const DEFAULT_IQAR_ICON = "i-ph-shield-warning-fill";
-const IQAR_ICONS: Record<string, string> = {
-	Boa: "i-ph-check-circle-fill",
-	Moderada: "i-ph-warning-circle-fill",
-	Ruim: "i-ph-warning-fill",
-	"Muito Ruim": "i-ph-warning-octagon-fill",
-	Péssima: DEFAULT_IQAR_ICON,
-};
-
-function iqarIcon(cls?: string): string {
-	return (cls && IQAR_ICONS[cls]) || DEFAULT_IQAR_ICON;
-}
+// Mesma semântica do Dashboard e de estacao/[id].astro: o IQAr do marcador é o do
+// ponto mais recente com `timestamp <= now`, nunca o ponto futuro mais próximo.
+const initialMapStations = Object.values(stationsData as any)
+	.map((item: any) => {
+		const picked = currentPoint(item.points, nowMs);
+		if (!picked) return null;
+		const res = globalIQAr(picked.point.observed);
+		return {
+			id: item.station.id,
+			name: item.station.name,
+			municipality: item.station.municipality,
+			latitude: item.station.latitude ?? item.station.lat,
+			longitude: item.station.longitude ?? item.station.lon,
+			iqar: res.iqar,
+			classification: res.classification,
+			primary: res.primary,
+			concentration: dominantConcentration(picked.point.observed, res.primary),
+		};
+	})
+	.filter((s) => s !== null);
 ---
 
-<Layout title="AetherML — Mapa Espacial da Grande Vitória">
-  <div class="mb-6 anim-fade-up">
-    <div class="glass-card px-5 py-4 relative overflow-hidden">
-      <div class="absolute top-0 inset-x-0 h-0.5 bg-gradient-to-r from-transparent via-sky-500 to-transparent"></div>
-      <h1 class="text-2xl font-extrabold text-slate-900 flex items-center gap-2 tracking-tight">
-        <span class="section-dot !w-3 !h-3"></span>
-        Rede de Monitoramento da Qualidade do Ar (RAMQAr)
-      </h1>
-      <p class="text-slate-500 text-sm mt-1">
-        Distribuição geográfica das 9 estações na Grande Vitória. Troque o basemap (Voyager / Dark / Positron) no cartão do mapa ou use o GPS para achar a estação mais próxima.
-      </p>
-    </div>
-  </div>
-
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 anim-fade-up-d1">
-    <!-- Mapa Principal -->
-    <div class="lg:col-span-2">
-      <RmgvMap client:only="svelte" stations={stationsList} />
-    </div>
-
-    <!-- Lista Lateral de Estações -->
-    <div class="glass-card p-4 space-y-3 max-h-[340px] lg:max-h-[460px] overflow-y-auto">
-      <h3 class="text-xs uppercase font-bold text-slate-400 tracking-wider">Estações de Monitoramento</h3>
-      {stationsList.map((s) => (
-        <div class="bg-white p-3 rounded-xl border border-slate-200 hover:border-sky-400 hover:-translate-y-0.5 transition-all shadow-sm">
-          <div class="flex justify-between items-start">
-            <div>
-              <h4 class="text-sm font-bold text-slate-800">{s.name}</h4>
-              <p class="text-xs text-slate-500">{s.municipality}</p>
-            </div>
-            <span class={`chip !text-[11px] font-mono font-bold ${badgeClass(s.classification)} flex items-center gap-1`}>
-              <span class={`${iqarIcon(s.classification)} w-3.5 h-3.5`}></span>
-              <span>{s.iqar}</span>
-            </span>
-          </div>
-          <div class="mt-2 text-[11px] text-slate-500 flex items-center justify-between">
-            <span class="font-mono">{s.latitude}, {s.longitude}</span>
-            <a href={`/estacao/${s.id}`} class="text-sky-700 hover:underline font-semibold">Ver Previsão 5 Dias →</a>
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
+<Layout
+  title="AetherML — Mapa Espacial da Grande Vitória"
+  description="Mapa das 9 estações RAMQAr da Grande Vitória com o IQAr CONAMA 491/2018 e a concentração em µg/m³ do poluente dominante, estação a estação."
+>
+  <DashboardShell client:load initialSection="mapa" initialMapStations={initialMapStations} />
 </Layout>

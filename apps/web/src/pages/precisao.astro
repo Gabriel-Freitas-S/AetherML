@@ -1,10 +1,17 @@
 ---
 import modelEval from "../../public/data/model-eval.json";
-import AccuracyDashboard from "../components/AccuracyDashboard.svelte";
-// apps/web/src/pages/precisao.astro — Backtest IA vs Real (holdout 7d)
+import DashboardShell from "../components/DashboardShell.svelte";
+// apps/web/src/pages/precisao.astro — rota preservada da seção "Precisão"
+//
+// Backtest IA vs real (holdout 7d), agora como seção do painel. A rota continua
+// de pé e continua SSR do artefato: `evalData` entra no shell já em tempo de
+// build, então o HTML servido traz os números medidos antes de qualquer fetch.
+//
+// Nenhumaaccuracy é digitada aqui. O `AccuracyDashboard` lê tudo de
+// `/data/model-eval.json`; o único papel desta página é entregar esse arquivo.
 import Layout from "../layouts/Layout.astro";
 ---
 
 <Layout title="AetherML — Precisão da IA vs Dados Reais">
-  <AccuracyDashboard client:load initialData={modelEval as any} />
+  <DashboardShell client:load initialSection="precisao" evalData={modelEval as any} />
 </Layout>

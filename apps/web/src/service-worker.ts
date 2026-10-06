@@ -4,11 +4,23 @@
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-const CACHE_SHELL = "aetherml-shell-v3";
-const CACHE_MODELS = "aetherml-models-v3";
-const CACHE_TILES = "aetherml-tiles-v3";
-const CACHE_DATA = "aetherml-data-v3";
+import { CACHE_VERSION } from "./generated/cache-version";
 
+// Versionado pelo build (scripts/gen-sw-version.mjs). Fixar "v3" fazia os caches
+// nunca rotacionarem entre deploys: uma falha de rede devolvia o bundle antigo
+// indefinidamente. O sufixo agora muda a cada build, e o handler `activate`
+// (abaixo) apaga os caches antigos.
+const CACHE_SHELL = `aetherml-shell-${CACHE_VERSION}`;
+const CACHE_MODELS = `aetherml-models-${CACHE_VERSION}`;
+const CACHE_TILES = `aetherml-tiles-${CACHE_VERSION}`;
+const CACHE_DATA = `aetherml-data-${CACHE_VERSION}`;
+
+// Offline é a condição padrão, não o plano B (PRODUCT.md, princípio 4). As cinco
+// seções do painel dividem UMA rota, então o artefato de cada uma precisa estar
+// no precache: sem `/data/comparison-data.json` e `/data/forecast-compare.json`
+// aqui, as abas Holdout e Previsão abrem vazias justamente para quem está sem
+// rede — que é a audiência que mais precisa delas. São 200 KB contra 374 KB do
+// bundle de estações; é o preço de a seção existir offline.
 const STATIC_ASSETS = [
 	"/",
 	"/offline.html",
@@ -22,6 +34,8 @@ const STATIC_ASSETS = [
 	"/models/registry.json",
 	"/data/stations-data.json",
 	"/data/model-eval.json",
+	"/data/comparison-data.json",
+	"/data/forecast-compare.json",
 	"/leaflet/leaflet.css",
 ];
 

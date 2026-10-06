@@ -25,4 +25,4 @@ Cada pílula é uma estação, com o IQAr atual dentro. Toque para trocar de est
 
 ## "De onde vem esse número?"
 
-De modelos de machine learning treinados com dados reais de satélite e meteorologia (guia 09 tem os detalhes e a precisão medida: **91,9% de acerto na faixa**). Não é chute nem média simples.
+De modelos de machine learning treinados com dados reais de satélite e meteorologia (guia 09 tem os detalhes e a precisão medida: **veja a página Precisão IA**). Não é chute nem média simples.

@@ -33,7 +33,7 @@ Como os números exibidos no app são produzidos, de onde vêm os dados e qual o
 | v2026.38.2 | Dados reais, 25 feats | 80,8% | ±8,2 | 3,04 / 0,09 |
 | v2026.38.3 | Holdout honesto (treino sem os 7d) | 80,8% | ±8,2 | 3,04 / 0,09 |
 | v2026.38.4 | Capacidade + pesos + viés | 80,2% | ±8,3 | 3,24 / −0,07 |
-| **v2026.38.5** | **FEATURE_ORDER_V2 (30 feats)** | **91,9%** | **±2,8** | **0,92 / 0,90** |
+| **v2026.38.5** | **FEATURE_ORDER_V2 (30 feats)** | — (ver /precisao) | — (ver /precisao) | **0,92 / 0,90** |
 
 Experimentos descartados no mesmo holdout (registrados para não repetir): isotonic isolada 77,5%, quantil-α 79,2%, detector binário (AUC 0,93 no valid, recall 0% no holdout — a semana era imprevisível para essas features).
 

@@ -51,7 +51,7 @@ A V1 provou-se cega à escalada intradiária de episódios (só havia lag de 24h
 29: so2_lag1    (SO2 há 1 hora, µg/m³)
 ```
 
-Contrato em `db/schema.ts` (`FEATURE_ORDER_V2`), worker ONNX com dimensão dinâmica e manifesto `registry.json` com `feature_order_version`. Efeito medido no mesmo holdout: faixa IQAr 80,8% → **91,9%** (detalhes e protocolo no guia 09).
+Contrato em `db/schema.ts` (`FEATURE_ORDER_V2`), worker ONNX com dimensão dinâmica e manifesto `registry.json` com `feature_order_version`. Efeito medido no mesmo holdout: faixa IQAr 80,8% → **veja a precisão atual em /precisao** (detalhes e protocolo no guia 09).
 
 ---
 

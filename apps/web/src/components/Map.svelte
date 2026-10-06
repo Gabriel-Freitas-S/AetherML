@@ -9,6 +9,13 @@ import {
 	DEFAULT_BASEMAP,
 	tileUrl,
 } from "../lib/basemaps";
+import {
+	IQAR_BANDS,
+	POLLUTANT_LABEL,
+	type PollutantKey,
+	iqarBand,
+} from "../lib/comparison";
+import { formatConcentration } from "../lib/dashboard-sections";
 import { loadBasemap, saveBasemap } from "../lib/location";
 
 interface StationWithStatus {
@@ -22,6 +29,15 @@ interface StationWithStatus {
 	iqar?: number;
 	classification?: string;
 	primary?: string;
+	/**
+	 * Concentração em µg/m³ do poluente dominante (`primary`), na hora do índice.
+	 *
+	 * Existe porque o IQAr é inteiro: em horários de pouco movimento o contraste
+	 * espacial real do modelo é de décimos de µg/m³ e o arredondamento da
+	 * classificação o apaga. Mostrar o número é mostrar o dado; inventar
+	 * variação para preencher o mapa seria mentira cartográfica.
+	 */
+	concentration?: number | null;
 }
 
 const {
@@ -54,21 +70,10 @@ let userLocation = $state<{
 	distance: number;
 } | null>(null);
 
-function getIqarColor(cls?: string): string {
-	switch (cls) {
-		case "Boa":
-			return "#10b981";
-		case "Moderada":
-			return "#f59e0b";
-		case "Ruim":
-			return "#f97316";
-		case "Muito Ruim":
-			return "#ef4444";
-		case "Péssima":
-			return "#a855f7";
-		default:
-			return "#22d3ee";
-	}
+/** Rótulo curto do poluente dominante, com a mesma convenção do resto do app. */
+function pollutantLabel(primary?: string): string {
+	if (!primary) return "—";
+	return POLLUTANT_LABEL[primary as PollutantKey] ?? primary.toUpperCase();
 }
 
 function coordsOf(s: StationWithStatus): [number, number] {
@@ -76,11 +81,28 @@ function coordsOf(s: StationWithStatus): [number, number] {
 	return [c.latitude, c.longitude];
 }
 
+/**
+ * Pin em duas leituras: o IQAr (faixa) em cima, a concentração real embaixo.
+ *
+ * A faixa nunca é comunicada só pela cor — o glifo da faixa (`band.icon`) é uma
+ * FORMA distinta por faixa, e o popup nomeia a faixa por extenso. A concentração
+ * é neutra de propósito: ela não é uma faixa CONAMA e não pode herdar a cor de
+ * uma. `title` carrega a frase completa para o leitor de tela e o hover.
+ */
 function markerHtml(s: StationWithStatus, selected: boolean): string {
-	const color = getIqarColor(s.classification);
+	const band = iqarBand(s.classification);
 	const label = s.iqar ?? "–";
-	return `<div class="aq-pin ${selected ? "aq-pin-selected" : ""}" style="--c:${color}">
-    <span class="aq-pin-val">${label}</span>
+	const unit = pollutantLabel(s.primary);
+	const conc = formatConcentration(s.concentration);
+	const concText = conc === "—" ? "" : `${unit} ${conc}`;
+	const spoken = `${s.name}: IQAr ${label}, faixa ${s.classification ?? "indeterminada"}. ${
+		conc === "—"
+			? "Concentração indisponível."
+			: `${unit} ${conc} microgramas por metro cúbico.`
+	}`;
+	return `<div class="aq-pin ${selected ? "aq-pin-selected" : ""}" style="--c:${band.hex}" title="${spoken}" aria-label="${spoken}">
+    <span class="aq-pin-iqar"><span class="${band.icon} aq-pin-band"></span>${label}</span>
+    <span class="aq-pin-conc">${concText}</span>
     ${selected ? `<span class="aq-pin-ring"></span>` : ""}
   </div>`;
 }
@@ -93,12 +115,14 @@ function buildMarkers() {
 	}
 	stations.forEach((s) => {
 		const selected = s.id === selectedStationId;
-		const color = getIqarColor(s.classification);
+		const band = iqarBand(s.classification);
+		const unit = pollutantLabel(s.primary);
+		const conc = formatConcentration(s.concentration);
 		const icon = Leaflet.divIcon({
 			className: "aq-pin-wrap",
 			html: markerHtml(s, selected),
-			iconSize: selected ? [44, 44] : [38, 38],
-			iconAnchor: selected ? [22, 22] : [19, 19],
+			iconSize: selected ? [56, 50] : [50, 44],
+			iconAnchor: selected ? [28, 25] : [25, 22],
 		});
 		const m = Leaflet.marker(coordsOf(s), {
 			icon,
@@ -109,10 +133,16 @@ function buildMarkers() {
 			`<div class="aq-pop">
         <div class="aq-pop-title">${s.name}</div>
         <div class="aq-pop-sub">${s.municipality}</div>
-        <div class="aq-pop-iqar" style="--c:${color}">
+        <div class="aq-pop-iqar" style="--c:${band.hex}">
           <strong>${s.iqar ?? "…"}</strong>
-          <span>${s.classification ?? "Calculando"}${s.primary ? ` · ${String(s.primary).toUpperCase()}` : ""}</span>
+          <span><span class="${band.icon} aq-pop-band" style="color:${band.text}"></span>${s.classification ?? "Calculando"} · ${unit}</span>
         </div>
+        ${
+					conc === "—"
+						? ""
+						: `<div class="aq-pop-conc"><span>${unit}</span><strong>${conc}</strong><span>µg/m³</span></div>`
+				}
+        <p class="aq-pop-note">Concentração do poluente dominante na hora do índice. Não é uma faixa: a faixa é o IQAr acima.</p>
         <a class="aq-pop-link" href="/estacao/${s.id}">Ver diagnóstico completo →</a>
       </div>`,
 			{ closeButton: false, offset: [0, -6] },
@@ -252,15 +282,19 @@ $effect(() => {
         Rede RAMQAr (IEMA/ES)
       </div>
       <div class="text-slate-500 text-[11px] mt-0.5">9 estações · IQAr CONAMA 491</div>
-      <!-- Seletor de basemap CARTO -->
+      <!-- Seletor de basemap CARTO. `min-h-[32px]` medido a 360px entregava um
+           alvo de toque de 32px — o único controle do produto abaixo da norma de
+           44px (nav, abas, seletor de estação e opções de poluente já são
+           `min-h-[44px]`). A linha dos quatro botões é horizontal, então subir a
+           altura custa 12px na altura do overlay, não na largura. -->
       <div class="flex gap-1 mt-2 bg-slate-100 border border-slate-200 rounded-lg p-1">
         {#each BASEMAP_STYLES as style}
           <button
             onclick={() => setBasemap(style)}
             title="Basemap {BASEMAP_LABELS[style]} (CARTO)"
             class={basemap === style
-              ? "flex-1 px-2 py-1.5 rounded-md text-[10px] font-bold bg-sky-700 text-white shadow-sm transition-all min-h-[32px] cursor-pointer"
-              : "flex-1 px-2 py-1.5 rounded-md text-[10px] font-bold text-slate-700 hover:bg-white transition-all min-h-[32px] cursor-pointer"}
+              ? "flex-1 px-2 py-1.5 rounded-md text-[10px] font-bold bg-sky-700 text-white shadow-sm transition-all min-h-[44px] cursor-pointer"
+              : "flex-1 px-2 py-1.5 rounded-md text-[10px] font-bold text-slate-700 hover:bg-white transition-all min-h-[44px] cursor-pointer"}
           >
             {BASEMAP_LABELS[style]}
           </button>
@@ -289,15 +323,22 @@ $effect(() => {
     {/if}
   </div>
 
-  <!-- Legenda IQAr -->
+  <!-- Legenda IQAr: glifo + cor + nome por faixa (a categoria nunca fica só na cor)
+       e, abaixo, a leitura secundária neutra do pin. -->
   <div class="absolute bottom-3 left-3 z-[400] bg-white/92 border border-slate-200 backdrop-blur-xl rounded-xl px-3 py-2 shadow-xl">
-    <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">IQAr</div>
-    <div class="flex items-center gap-2.5 text-[10px] font-semibold text-slate-600">
-      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full inline-block" style="background:#10b981"></i>Boa</span>
-      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full inline-block" style="background:#f59e0b"></i>Mod.</span>
-      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full inline-block" style="background:#f97316"></i>Ruim</span>
-      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full inline-block" style="background:#ef4444"></i>M.Ruim</span>
-      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full inline-block" style="background:#a855f7"></i>Pés.</span>
+    <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">Faixa IQAr</div>
+    <div class="grid grid-cols-3 gap-x-2.5 gap-y-1 text-[10px] font-semibold text-slate-600">
+      {#each IQAR_BANDS as band}
+        <span class="flex items-center gap-1">
+          <span class="{band.icon} w-3 h-3 shrink-0" style="color: {band.text}"></span>
+          <i class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:{band.hex}"></i>
+          <span>{band.label}</span>
+        </span>
+      {/each}
+    </div>
+    <div class="mt-1.5 pt-1.5 border-t border-slate-200 text-[10px] leading-snug text-slate-500 max-w-[230px]">
+      Pin: <strong class="font-mono text-slate-700">IQAr</strong> da faixa ·
+      <strong class="font-mono text-slate-700">concentração µg/m³</strong> do poluente dominante, em cinza.
     </div>
   </div>
 
@@ -312,20 +353,53 @@ $effect(() => {
 
 <style>
   :global(.aq-pin-wrap) { background: transparent; border: none; }
+  /* Lozenge de duas leituras: IQAr (faixa) em cima, concentração real embaixo.
+     O halo colorido foi removido de propósito — sombra sem offset não é
+     profundidade, é enfeite, e aqui ele competia com o número dentro do pin. */
   :global(.aq-pin) {
     position: relative;
-    width: 38px; height: 38px;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(255, 255, 255, 0.96);
+    min-width: 44px; height: 44px;
+    padding: 2px 7px 3px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    line-height: 1.05;
+    background: rgba(255, 255, 255, 0.97);
     border: 2px solid var(--c);
-    border-radius: 9999px;
-    box-shadow: 0 0 0 3px rgba(255,255,255,.7), 0 0 14px -2px var(--c), 0 8px 18px -6px rgba(15,40,60,.4);
+    border-radius: 12px;
+    box-shadow: 0 0 0 3px rgba(255,255,255,.75), 0 10px 20px -8px rgba(15,40,60,.45);
     transition: transform .15s ease;
   }
-  :global(.aq-pin:hover) { transform: scale(1.12); }
-  :global(.aq-pin-val) { color: #0f172a; font-weight: 800; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
-  :global(.aq-pin-selected) { width: 44px; height: 44px; border-color: #fff; }
-  :global(.aq-pin-selected .aq-pin-val) { font-size: 13px; }
+  :global(.aq-pin:hover) { transform: scale(1.08); }
+  :global(.aq-pin-iqar) {
+    display: flex; align-items: center; gap: 3px;
+    color: #0f172a; font-weight: 800; font-size: 13px;
+    font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums;
+  }
+  /* Cinco glifos de formas distintas = a redundância de FORMA que a cor não
+     pode carregar sozinha. */
+  :global(.aq-pin-band) { width: 9px; height: 9px; }
+  /* Leitura secundária NEUTRA: concentração não é faixa e não veste a cor de
+     nenhuma. Só a informação. */
+  :global(.aq-pin-conc) {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 8.5px; font-weight: 600; letter-spacing: -0.01em;
+    color: #64748b; white-space: nowrap;
+  }
+  :global(.aq-pin-selected) {
+    height: 50px;
+    box-shadow: 0 0 0 3px #fff, 0 0 0 5px color-mix(in srgb, var(--c) 45%, transparent), 0 14px 26px -10px rgba(15,40,60,.5);
+  }
+  :global(.aq-pin-selected .aq-pin-iqar) { font-size: 15px; }
+  :global(.aq-pin-selected .aq-pin-conc) { font-size: 9.5px; }
+  /* Tela estreita: o pin encolhe em LARGURA (fonte e padding) e mantém 44px de
+     altura, porque a altura é o alvo de toque. */
+  @media (max-width: 640px) {
+    :global(.aq-pin) { padding: 2px 4px 3px; border-radius: 10px; }
+    :global(.aq-pin-iqar) { font-size: 11.5px; }
+    :global(.aq-pin-band) { width: 8px; height: 8px; }
+    :global(.aq-pin-conc) { font-size: 7.5px; }
+    :global(.aq-pin-selected .aq-pin-iqar) { font-size: 13.5px; }
+  }
   :global(.aq-pin-ring) {
     position: absolute; inset: -7px;
     border: 2px solid var(--c); border-radius: 9999px;
@@ -358,6 +432,16 @@ $effect(() => {
     padding: 6px 10px; border-radius: 8px; font-size: 12px; color: #1e293b;
   }
   :global(.aq-pop-iqar strong) { font-family: 'JetBrains Mono', monospace; font-size: 15px; color: #0f172a; }
+  :global(.aq-pop-band) { width: 12px; height: 12px; }
+  :global(.aq-pop-conc) {
+    display: flex; align-items: baseline; gap: 5px;
+    margin-top: 7px; color: #475569; font-size: 11px; font-weight: 600;
+  }
+  :global(.aq-pop-conc strong) {
+    font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #0f172a;
+    font-variant-numeric: tabular-nums;
+  }
+  :global(.aq-pop-note) { margin-top: 6px; font-size: 10.5px; line-height: 1.35; color: #64748b; }
   :global(.aq-pop-link) { display: block; margin-top: 8px; font-size: 11px; color: #0369a1; font-weight: 700; }
   :global(.leaflet-container) { font-family: 'Outfit', sans-serif; background: #e8eef4; }
   @media (prefers-reduced-motion: reduce) {

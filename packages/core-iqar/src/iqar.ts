@@ -68,6 +68,25 @@ export function individualIndex(
 	return { index: idx, classification: band.cls };
 }
 
+// As faixas de índice são as mesmas para todo poluente: derivamos de uma tabela
+// em vez de duplicar 0/41/81/121/201.
+const INDEX_BANDS = TABLE.pm25.map(({ iFim, cls }) => ({ iFim, cls }));
+
+/**
+ * Faixa CONAMA 491/2018 a partir de um índice IQAr já calculado.
+ *
+ * Mesmos limites de `individualIndex`: 0-40 Boa, 41-80 Moderada, 81-120 Ruim,
+ * 121-200 Muito Ruim, 201-300 Péssima. Índices acima de 300 (saturação da UI) e
+ * abaixo de 0 ficam fixados nas faixas extremas. Serve para classificar
+ * estatísticas agregadas (média do dia, pico), que não têm uma concentração
+ * associada e portanto não podem passar por `individualIndex`.
+ */
+export function classifyIndex(index: number): Classification {
+	const idx = Number.isFinite(index) ? index : 0;
+	const band = INDEX_BANDS.find((b) => idx <= b.iFim);
+	return (band ?? INDEX_BANDS[INDEX_BANDS.length - 1]).cls;
+}
+
 export function globalIQAr(concs: Record<Pollutant, number>): {
 	iqar: number;
 	classification: Classification;

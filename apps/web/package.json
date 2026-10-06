@@ -3,12 +3,13 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
-		"build:sw": "esbuild src/service-worker.ts --bundle --outfile=public/service-worker.js --minify --format=iife",
+		"build:sw": "node scripts/gen-sw-version.mjs && esbuild src/service-worker.ts --bundle --outfile=public/service-worker.js --minify --format=iife",
 		"predev": "pnpm run build:sw",
 		"dev": "astro dev --host",
 		"prebuild": "pnpm run build:sw",
 		"build": "astro build",
 		"preview": "astro preview",
+		"refresh:data": "cd ../.. && python ml/refresh_all.py",
 		"test": "node --test test/**/*.test.ts"
 	},
 	"dependencies": {

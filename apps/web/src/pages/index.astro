@@ -1,15 +1,48 @@
 ---
-import Dashboard from "../components/Dashboard.svelte";
+import { globalIQAr } from "@aetherml/core-iqar";
+import DashboardShell from "../components/DashboardShell.svelte";
 // apps/web/src/pages/index.astro — Painel Principal RMGV (SSR fino + ilha reativa)
 import Layout from "../layouts/Layout.astro";
 
 import stationsData from "../../public/data/stations-data.json";
+import { currentPoint } from "../lib/current-point";
+import { dominantConcentration } from "../lib/dashboard-sections";
+
+const nowMs = Date.now();
+
+// Forma do artefato `stations-data.json`, declarada uma vez. O JSON entra sem
+// tipo pelo bundler; narrowar explicitamente custa uma tela e troca `any` por
+// campos que o compilador realmente confere — inclusive o bloco `observed`, de
+// onde sai a concentração que o pin do mapa exibe.
+interface ObservedBlock {
+	pm25: number;
+	pm10: number;
+	o3: number;
+	no2: number;
+	so2: number;
+}
+interface StationSeries {
+	station: {
+		id: string;
+		name: string;
+		municipality: string;
+		lat: number;
+		lon: number;
+		latitude?: number;
+		longitude?: number;
+		coastal?: boolean;
+		downwind_tubarao?: boolean;
+		bridge_proximity?: boolean;
+	};
+	points: { timestamp: string; observed: ObservedBlock }[];
+}
+const bundle = stationsData as unknown as Record<string, StationSeries>;
 
 const defaultStationId = "ramqar_camburi";
-const defaultStationData = (stationsData as any)[defaultStationId];
+const defaultStationData = bundle[defaultStationId];
 
 // Metadados leves p/ o seletor e o GPS (sem os 120 pontos — o bundle completo é buscado no cliente)
-const stationsMeta = Object.values(stationsData as any).map((item: any) => ({
+const stationsMeta = Object.values(bundle).map((item) => ({
 	id: item.station.id,
 	name: item.station.name,
 	municipality: item.station.municipality,
@@ -20,16 +53,43 @@ const stationsMeta = Object.values(stationsData as any).map((item: any) => ({
 	bridge_proximity: item.station.bridge_proximity,
 }));
 
+// As 9 estações com IQAr + concentração do poluente dominante, calculadas NO
+// BUILD a partir do mesmo `stations-data.json`. É a entrada da seção "Mapa":
+// assim `/mapa` e `/` mostram exatamente o mesmo número, sem depender de o
+// Dashboard já ter buscado a série no cliente. Mesmas funções (`currentPoint` +
+// `globalIQAr`) que o pin do painel usa — duas rampas de IQAr seriam duas
+// verdades sobre saúde.
+const initialMapStations = Object.values(bundle)
+	.map((item) => {
+		const picked = currentPoint(item.points, nowMs);
+		if (!picked) return null;
+		const res = globalIQAr(picked.point.observed);
+		return {
+			id: item.station.id,
+			name: item.station.name,
+			municipality: item.station.municipality,
+			latitude: item.station.latitude ?? item.station.lat,
+			longitude: item.station.longitude ?? item.station.lon,
+			iqar: res.iqar,
+			classification: res.classification,
+			primary: res.primary,
+			concentration: dominantConcentration(picked.point.observed, res.primary),
+		};
+	})
+	.filter((s) => s !== null);
+
 const initialBundle = defaultStationData
 	? { [defaultStationId]: defaultStationData }
 	: null;
 ---
 
 <Layout title="AetherML — Previsão de Qualidade do Ar RMGV (5 Dias ML)">
-  <Dashboard
+  <DashboardShell
     client:load
+    initialSection="agora"
     stationsMeta={stationsMeta}
     initialStationId={defaultStationId}
     initialBundle={initialBundle}
+    initialMapStations={initialMapStations}
   />
 </Layout>

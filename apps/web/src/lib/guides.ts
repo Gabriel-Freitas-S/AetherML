@@ -115,7 +115,7 @@ export const GUIDES: Guide[] = [
 		title: "Dados reais, backtest e precisão",
 		badge: "Metodologia & Métricas",
 		icon: "i-ph-globe-fill",
-		summary: "Fontes, fim do sintético, holdout 7d e 91,9%.",
+		summary: "Fontes, fim do sintético, holdout 7d e precisão em /precisao.",
 		track: "tech",
 	},
 ];

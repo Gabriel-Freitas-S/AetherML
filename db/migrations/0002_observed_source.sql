@@ -1,0 +1,14 @@
+-- Migration 0002_observed_source — registra DE QUAL PRODUTO veio cada linha de observed_pollutants.
+--
+-- Contexto: 'IEMA' é reservado para observação oficial in-situ de estação. O projeto não tem
+-- acesso a API pública gratuita do IEMA/RAMQAr, então as linhas são gravadas a partir da
+-- reanálise CAMS do Open-Meteo — produto de MODELO, não leitura de estação.
+--
+-- Coluna TEXT anulável SEM DEFAULT: um DEFAULT 'IEMA' marcaria silenciosamente toda linha de
+-- reanálise CAMS como "ground truth" oficial; NULL significa "origem não registrada" e obriga
+-- cada write path a passar `source` explicitamente. 'IEMA' segue reservado como sentinela e
+-- continua DEFAULT em monitoring_stations.source (inalterado por esta migration).
+--
+-- SQLite não aceita DEFAULT não-constante em ADD COLUMN; anulável e sem default dispensa o
+-- padrão add-then-backfill.
+ALTER TABLE observed_pollutants ADD COLUMN source TEXT;

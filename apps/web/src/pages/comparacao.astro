@@ -1,0 +1,31 @@
+---
+// apps/web/src/pages/comparacao.astro — rota preservada da seção "Holdout"
+//
+// ML × Open-Meteo no HOLDOUT (passado). Esta rota lê UM artefato só:
+// `comparison-data.json` (janela de holdout, passada). O holdout e a previsão de
+// 120h à frente são janelas diferentes e de naturezas diferentes: um nunca
+// plotamos o outro ao lado, e o holdout não valida a previsão — nem vice-versa.
+// O aviso dentro do painel existe para que essa distinção não dependa de o
+// leitor lembrar dela.
+//
+// Nada de `stations-data.json` aqui, e nada de `model-eval.json`: a página de
+// Precisão é a outra seção e tem o seu próprio artefato.
+//
+// A duração da janela NÃO é digitada aqui: a meta description carregava a
+// duração do holdout e envelhecia junto com o artefato. O JSON é importado em
+// tempo de build — o mesmo caminho de `comparacao-previsao.astro` e
+// `precisao.astro` —, então o `<meta name="description">` servido já traz a
+// janela real antes de qualquer fetch.
+import comparisonData from "../../public/data/comparison-data.json";
+import DashboardShell from "../components/DashboardShell.svelte";
+import Layout from "../layouts/Layout.astro";
+
+const HOLDOUT_HOURS = comparisonData.holdout.hours;
+---
+
+<Layout
+  title="AetherML — Modelo vs Open-Meteo no holdout"
+  description={`Comparação hora a hora entre a previsão calibrada do modelo e a re-análise CAMS/Open-Meteo numa janela de holdout de ${HOLDOUT_HOURS} horas (dados passados, fora do treino), com resíduos e métricas por poluente e por estação.`}
+>
+  <DashboardShell client:load initialSection="holdout" />
+</Layout>

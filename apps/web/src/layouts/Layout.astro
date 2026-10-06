@@ -2,6 +2,8 @@
 // apps/web/src/layouts/Layout.astro — Tema claro
 import "katex/dist/katex.min.css";
 
+import { DASHBOARD_SECTIONS } from "../lib/dashboard-sections";
+
 interface Props {
 	title?: string;
 	description?: string;
@@ -13,9 +15,28 @@ const {
 } = Astro.props;
 
 const currentPath = Astro.url.pathname;
+
+/** "/mapa/" e "/mapa" são a mesma rota para efeito de estado ativo. */
+function normalize(path: string): string {
+	return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
+}
+
+const current = normalize(currentPath);
+
+/**
+ * A navegação tem DOIS itens porque o produto tem duas superfícies de leitura:
+ * o painel e a documentação. Mapa, Precisão, Previsão e Holdout não
+ * desapareceram — viraram SEÇÕES do painel (`lib/dashboard-sections.ts`), e cada
+ * uma continua com a sua rota. Por isso "Dashboard" acende em qualquer uma
+ * delas: um link profundo para `/mapa` mostra o mesmo produto, com a seção certa
+ * já aberta.
+ */
 function isActive(href: string): boolean {
-	if (href === "/") return currentPath === "/";
-	return currentPath.startsWith(href);
+	const target = normalize(href);
+	if (target === "/") {
+		return DASHBOARD_SECTIONS.some((s) => normalize(s.href) === current);
+	}
+	return current === target || current.startsWith(`${target}/`);
 }
 function navClass(href: string): string {
 	return isActive(href)
@@ -193,8 +214,16 @@ function mobileNavClass(href: string): string {
   <!-- Navbar -->
   <header class="sticky top-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-200">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-      <!-- Logo -->
-      <a href="/" class="flex items-center gap-2.5 group">
+      <!-- Logo. `shrink-0` não é enfeite: a flex row distribui o que falta de
+           espaço encolhendo o logo. Medido a 360px, o `<a>` baixava de 144px
+           para 141.8px, o strapline perdia 2.2px e QUEBRAVA em duas linhas
+           dentro da barra de `h-16` (offsetHeight 26px numa linha de 12px) — e
+           "Instalar App" quebrava junto, em 32px numa linha de 16px. As larguras
+           naturais somam 325px (144 + 121 + 44 + 16 de gaps) contra 344px de
+           fila: sobra 19px, mas o encolhimento os consumia. Sem encolher os
+           dois rótulos cabem inteiros e nada é escondido. A partir de 390px nunca
+           houve quebra. -->
+      <a href="/" class="flex items-center gap-2.5 group shrink-0">
         <img src="/favicon.svg" alt="AetherML" class="w-9 h-9 rounded-xl shadow-md shadow-sky-500/20 group-hover:scale-105 transition-transform" />
         <div>
           <span class="font-extrabold text-lg tracking-tight text-slate-900 flex items-center gap-0.5">
@@ -204,11 +233,10 @@ function mobileNavClass(href: string): string {
         </div>
       </a>
 
-      <!-- Links de Navegação -->
+      <!-- Links de Navegação: dois itens. As outras quatro leituras são seções do
+           Dashboard, acessíveis pelas abas e por rota própria. -->
       <nav class="hidden md:flex items-center gap-1 text-sm font-medium bg-slate-100 border border-slate-200 rounded-full px-1.5 py-1" aria-label="Navegação principal">
         <a href="/" class={navClass("/")}>Dashboard</a>
-        <a href="/mapa" class={navClass("/mapa")}>Mapa RMGV</a>
-        <a href="/precisao" class={navClass("/precisao")}>Precisão IA</a>
         <a href="/docs" class={navClass("/docs")}>
           Docs &bull; CONAMA 491
         </a>
@@ -250,15 +278,20 @@ function mobileNavClass(href: string): string {
     <nav id="mobile-nav" class="md:hidden hidden border-t border-slate-200 bg-white/95 backdrop-blur-xl" aria-label="Navegação móvel">
       <div class="px-4 py-3 flex flex-col gap-1 text-sm font-medium">
         <a href="/" class={mobileNavClass("/")}>Dashboard</a>
-        <a href="/mapa" class={mobileNavClass("/mapa")}>Mapa RMGV</a>
-        <a href="/precisao" class={mobileNavClass("/precisao")}>Precisão IA</a>
         <a href="/docs" class={mobileNavClass("/docs")}>Docs &bull; CONAMA 491</a>
       </div>
     </nav>
   </header>
 
   <!-- Conteúdo Principal -->
-  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+  <!-- `box-border` NÃO é enfeite. O projeto usa `presetUno`, que não embute
+     preflight: nenhum elemento da página recebe `box-sizing: border-box`, e o
+     padrão do user agent é `content-box`. Com isso, `w-full` + `px-6` somava 48px
+     de padding POR CIMA da largura — `main` media 1022px numa janela de 990px e a
+     página rolava de lado. Declarar a caixa explicitamente no elemento medido é
+     mais seguro que jogar um reset global `*` em cima de toda a tipografia e
+     espaçamento já calibrados do produto. -->
+<main class="box-border flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
     <slot />
   </main>
 
@@ -267,8 +300,6 @@ function mobileNavClass(href: string): string {
     <div class="max-w-7xl mx-auto px-4 flex flex-col gap-3">
       <nav class="flex items-center justify-center gap-4" aria-label="Rodapé">
         <a href="/" class="hover:text-sky-700 transition-colors font-semibold">Dashboard</a>
-        <a href="/mapa" class="hover:text-sky-700 transition-colors font-semibold">Mapa</a>
-        <a href="/precisao" class="hover:text-sky-700 transition-colors font-semibold">Precisão IA</a>
         <a href="/docs" class="hover:text-sky-700 transition-colors font-semibold">Docs</a>
       </nav>
       <div class="flex flex-col sm:flex-row items-center justify-between gap-3">

@@ -1,6 +1,7 @@
 <!-- apps/web/src/components/ForecastChart.svelte — Gráfico SVG Reativo Svelte 5 (Runes) -->
 <script lang="ts">
 import type { PredictionPoint } from "@aetherml/inference-client";
+import { formatAxisTickLabel, getLocalDateStr } from "../lib/forecast-days";
 
 const {
 	points = [],
@@ -40,7 +41,7 @@ function getX(hour: number): number {
 const xMarkers = $derived.by(() => {
 	if (points.length > 50) {
 		const bounds = [0, 24, 48, 72, 96].filter((h) => h < points.length);
-		const marks = bounds.map((h, i) => ({ h, label: tickLabel(h, i === 0) }));
+		const marks = bounds.map((h) => ({ h, label: tickLabel(h) }));
 		marks.push({ h: points[points.length - 1]?.hour ?? 119, label: "+120h" });
 		return marks;
 	}
@@ -50,24 +51,16 @@ const xMarkers = $derived.by(() => {
 	}));
 });
 
-// "Hoje 18/09" / "Sáb 19/09" a partir do timestamp do ponto (fuso de Brasília)
-function tickLabel(h: number, isFirst: boolean): string {
+// Rótulo do eixo X: formata no fuso da rede via forecast-days.ts e usa NBSP, porque o
+// parser XML de <text> SVG descarta espaços comuns e colava "Hoje27/09" (defeito 4).
+// "Hoje" só entra quando a data local do ponto é a data local de agora — a primeira
+// hora do bundle não é necessariamente hoje (defeito 4b).
+function tickLabel(h: number): string {
 	const p = points.find((q) => q.hour === h) ?? points[h];
 	const ts = (p as any)?.timestamp as string | undefined;
-	if (!ts) return isFirst ? "Hoje" : `Dia ${h / 24 + 1} (+${h}h)`;
-	const d = new Date(ts);
-	const parts = new Intl.DateTimeFormat("pt-BR", {
-		timeZone: "America/Sao_Paulo",
-		weekday: "short",
-		day: "2-digit",
-		month: "2-digit",
-	}).formatToParts(d);
-	const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "";
-	let wd = get("weekday").replace(".", "");
-	wd = wd.charAt(0).toUpperCase() + wd.slice(1);
-	return isFirst
-		? `Hoje ${get("day")}/${get("month")}`
-		: `${wd} ${get("day")}/${get("month")}`;
+	if (!ts) return `+${h}h`;
+	const isToday = getLocalDateStr(new Date(ts)) === getLocalDateStr(new Date());
+	return formatAxisTickLabel(ts, isToday);
 }
 
 function getY(val: number): number {

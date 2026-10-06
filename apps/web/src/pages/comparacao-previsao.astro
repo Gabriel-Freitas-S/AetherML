@@ -1,0 +1,33 @@
+---
+// apps/web/src/pages/comparacao-previsao.astro — rota preservada da seção "Previsão"
+//
+// ML × Open-Meteo na janela de PREVISÃO (120 h à frente), ao contrário de
+// `/comparacao`, que é o HOLDOUT.
+//
+// Esta seção lê UM artefato só: `forecast-compare.json`. Nada de
+// `stations-data.json`: as duas janelas nunca dividem eixo de tempo, senão a
+// previsão validaria a si mesma.
+//
+// E o aviso do componente é obrigatório, não decoração: no forecast, o CAMS da
+// hora é insumo das features do modelo que produziu a curva `ml` da mesma hora,
+// então a concordância entre as duas curvas é verdadeira por construção e não
+// mede erro. A validação de precisão fica na seção Holdout.
+//
+// A duração da janela NÃO é digitada aqui: `120h` e "5 dias" já viveram no
+// título e na meta description, e envelhecem junto com o artefato. O JSON é
+// importado em tempo de build — o mesmo caminho de `precisao.astro` —, então o
+// `<title>` servido já traz a janela real antes de qualquer fetch.
+import forecastCompare from "../../public/data/forecast-compare.json";
+import DashboardShell from "../components/DashboardShell.svelte";
+import Layout from "../layouts/Layout.astro";
+
+const WINDOW_HOURS = forecastCompare.window.hours;
+const WINDOW_DAYS = WINDOW_HOURS / 24;
+---
+
+<Layout
+  title={`AetherML — Previsão do Modelo vs Open-Meteo (${WINDOW_DAYS} dias)`}
+  description={`Comparação hora a hora entre a previsão do modelo e a re-análise CAMS/Open-Meteo ao longo de ${WINDOW_HOURS} horas de previsão, com a hora corrente lado a lado, resíduos e cobertura pareada por poluente. Esta janela não valida a precisão do modelo — a validação está no holdout.`}
+>
+  <DashboardShell client:load initialSection="previsao" />
+</Layout>

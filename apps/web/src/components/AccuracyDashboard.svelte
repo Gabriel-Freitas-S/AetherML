@@ -1,6 +1,17 @@
 <!-- apps/web/src/components/AccuracyDashboard.svelte — Precisão IA vs Real (holdout 7d) -->
 <script lang="ts">
 import { onMount } from "svelte";
+import {
+	CLASS_ACCURACY_FIELD,
+	DASH,
+	classAccuracyByName,
+	evaluationPointClaim,
+	formatClassAccuracy,
+	holdoutHoursClaim,
+	holdoutSpanClaim,
+	modelCountClaim,
+	rolloutClaim,
+} from "../lib/eval-claims";
 import CompareChart from "./CompareChart.svelte";
 import StationPicker from "./StationPicker.svelte";
 
@@ -162,13 +173,13 @@ function fmtDate(iso: string): string {
       <div class="lg:col-span-2">
         <div class="flex items-center gap-2 text-[11px] font-bold tracking-widest text-emerald-800 uppercase mb-2">
           <span class="i-ph-cpu-fill w-3.5 h-3.5 text-emerald-600"></span>
-          <span>Backtest · {data.model_version} · holdout de 7 dias fora do treino</span>
+          <span>Backtest · {data.model_version} · holdout de {holdoutSpanClaim(data) ?? DASH} fora do treino</span>
         </div>
         <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 flex items-center gap-2">
           Precisão da IA <span class="text-emerald-700">vs dados reais</span>
         </h1>
         <p class="text-sm text-slate-600 mt-2 max-w-2xl leading-relaxed">
-          {data.holdout.points} horas avaliadas em {data.holdout.stations} estações
+          {evaluationPointClaim(data) ?? DASH} em {holdoutHoursClaim(data) ?? DASH} · {data.holdout.stations} estações
           ({fmtDate(data.holdout.start)} → {fmtDate(data.holdout.end)}).
           Referência: CAMS/Open-Meteo. O modelo nunca viu esse período no treino.
         </p>
@@ -192,8 +203,10 @@ function fmtDate(iso: string): string {
           <span class="i-ph-target-bold w-3.5 h-3.5 text-emerald-600"></span>
           <span>Acerto da faixa IQAr</span>
         </div>
-        <div class="text-5xl sm:text-6xl font-black font-mono text-emerald-700 tabular-nums my-1">{(data.iqar.class_accuracy * 100).toFixed(1)}%</div>
-        <div class="text-[11px] text-slate-600">Boa <strong class="text-slate-800">{((data.iqar.by_class.Boa?.acc ?? 0) * 100).toFixed(1)}%</strong> · Moderada <strong class="text-slate-800">{((data.iqar.by_class.Moderada?.acc ?? 0) * 100).toFixed(1)}%</strong></div>
+        <!-- A procedência vai no `title`: o número vem de `iqar.class_accuracy`,
+             nunca de uma constante no copy. -->
+        <div class="text-5xl sm:text-6xl font-black font-mono text-emerald-700 tabular-nums my-1" title={CLASS_ACCURACY_FIELD}>{(data.iqar.class_accuracy * 100).toFixed(1)}%</div>
+        <div class="text-[11px] text-slate-600">Boa <strong class="text-slate-800">{formatClassAccuracy(classAccuracyByName(data, "Boa"))}</strong> · Moderada <strong class="text-slate-800">{formatClassAccuracy(classAccuracyByName(data, "Moderada"))}</strong></div>
       </div>
     </div>
   </section>
@@ -202,7 +215,7 @@ function fmtDate(iso: string): string {
   <section class="mt-8 anim-fade-up-d1">
     <div class="mb-3 flex items-center justify-between">
       <h2 class="section-title"><span class="section-dot"></span>Erro por poluente · 1 passo à frente</h2>
-      <span class="text-xs text-slate-500">5 modelos calibrados</span>
+      <span class="text-xs text-slate-500">{modelCountClaim(data) ?? DASH}</span>
     </div>
     <div class="flex sm:grid sm:grid-cols-3 lg:grid-cols-5 gap-3.5 overflow-x-auto pb-2 snap-x snap-mandatory">
       {#each Object.entries(data.metrics) as [target, m], idx}
@@ -240,7 +253,7 @@ function fmtDate(iso: string): string {
   <!-- Degradação por horizonte -->
   <section class="mt-8 anim-fade-up-d2">
     <div class="mb-3 flex items-center justify-between">
-      <h2 class="section-title"><span class="section-dot !bg-amber-600"></span>Degradação por horizonte · rollout 120h recursivo</h2>
+      <h2 class="section-title"><span class="section-dot !bg-amber-600"></span>Degradação por horizonte · {rolloutClaim(data) ?? DASH}</h2>
       <span class="text-xs text-slate-500">Validação multi-step</span>
     </div>
     <div class="glass-card p-5 overflow-x-auto">
@@ -285,7 +298,7 @@ function fmtDate(iso: string): string {
   <!-- Comparativo série temporal -->
   <section class="mt-8 mb-8 anim-fade-up-d3">
     <div class="mb-3 flex flex-wrap items-center gap-2 relative z-30">
-      <h2 class="section-title mr-auto"><span class="section-dot !bg-emerald-600"></span>Curva Real vs IA · 7 dias</h2>
+      <h2 class="section-title mr-auto"><span class="section-dot !bg-emerald-600"></span>Curva Real vs IA · {holdoutSpanClaim(data) ?? DASH}</h2>
       <div class="w-full sm:w-auto sm:min-w-[240px]">
         <StationPicker
           stations={stationIds.map((id) => ({ id, name: data.series[id].name, municipality: "" }))}
@@ -322,7 +335,8 @@ function fmtDate(iso: string): string {
       />
     {/if}
     <p class="text-xs text-slate-500 mt-3 leading-relaxed">
-      Metodologia: treino até {fmtDate(data.holdout.start)} (13.977 amostras), avaliação nas 168h seguintes sem re-treino.
+      Metodologia: treino até {fmtDate(data.holdout.start)}, avaliação em {evaluationPointClaim(data) ?? DASH}
+      ({holdoutHoursClaim(data) ?? DASH}) sem re-treino.
       Alvos e lags de referência: CAMS via Open-Meteo (modelo regional — não é medição de rua). Tráfego e satélite seguem como proxies determinísticos documentados.
     </p>
   </section>

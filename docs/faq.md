@@ -4,7 +4,7 @@
 Sim. Desde a v2026.38.2, alvos e meteorologia vêm do Open-Meteo/CAMS (sem chave). Tráfego e satélite ainda são proxies determinísticos documentados — não há aleatoriedade no pipeline. O histórico sintético foi aposentado (guia 09).
 
 ## Qual a precisão da IA?
-**91,9% de acerto na faixa IQAr** em 7 dias nunca vistos no treino (1.512 horas × 9 estações). Erro médio de ±2,8 pontos no índice. Detalhes, por poluente e por horizonte, na página Precisão IA.
+Acerto de faixa IQAr e erro médio do índice medidos em 7 dias nunca vistos no treino (168 horas × 9 estações, 1.512 pontos); o número exato muda a cada retreino. Detalhes, por poluente e por horizonte, na página Precisão IA (/precisao).
 
 ## Por que o número muda quando troco de estação?
 Cada estação tem microclima e fontes próprios (orla, centro, interior, indústria). O modelo prevê por coordenada — Camburi numa hora pode estar Boa e Cariacica Moderada. É o comportamento esperado, não um bug.

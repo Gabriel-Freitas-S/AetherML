@@ -4,8 +4,14 @@ import stationsData from "../../../public/data/stations-data.json";
 import ForecastChart from "../../components/ForecastChart.svelte";
 
 import Waterfall from "../../components/Waterfall.svelte";
-// apps/web/src/pages/estacao/[id].astro — Diagnóstico por Estação RAMQAr
 import Layout from "../../layouts/Layout.astro";
+// apps/web/src/pages/estacao/[id].astro — Diagnóstico por Estação RAMQAr
+import { currentPoint as pickCurrentPoint } from "../../lib/current-point";
+import {
+	buildFiveDayCards,
+	describeDataAge,
+	formatStaleNotice,
+} from "../../lib/forecast-days";
 
 export async function getStaticPaths() {
 	return Object.keys(stationsData).map((stationId) => ({
@@ -31,16 +37,9 @@ const points = data.points.map((p: any) => {
 	};
 });
 
-const nowMs = Date.now();
-let currentPoint = points[0];
-let minDiff = Math.abs(new Date(currentPoint.timestamp).getTime() - nowMs);
-for (let i = 1; i < points.length; i++) {
-	const diff = Math.abs(new Date(points[i].timestamp).getTime() - nowMs);
-	if (diff < minDiff) {
-		minDiff = diff;
-		currentPoint = points[i];
-	}
-}
+// IQAr Atual: o ponto mais recente com `timestamp <= now` — mesma função do mapa e
+// do Dashboard, para que as três telas nunca mostrem números diferentes.
+const currentPoint = pickCurrentPoint(points, Date.now())?.point ?? null;
 
 const saabasExample = [
 	{ feature: "wind_direction", phi: station.downwind_tubarao ? 14.2 : 3.1 },
@@ -53,77 +52,15 @@ const saabasExample = [
 	{ feature: "wind_speed", phi: -4.8 },
 ];
 
-function getLocalDateStr(date: Date): string {
-	return new Intl.DateTimeFormat("en-CA", {
-		timeZone: "America/Sao_Paulo",
-		year: "numeric",
-		month: "2-digit",
-		day: "2-digit",
-	}).format(date);
-}
-
-function formatDayCardLabel(dateStr: string, isToday: boolean): string {
-	const [y, m, d] = dateStr.split("-").map(Number);
-	const date = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
-	const parts = new Intl.DateTimeFormat("pt-BR", {
-		timeZone: "America/Sao_Paulo",
-		weekday: "short",
-		day: "2-digit",
-		month: "2-digit",
-	}).formatToParts(date);
-	const get = (t: string) => parts.find((x) => x.type === t)?.value ?? "";
-	let wd = get("weekday").replace(".", "");
-	wd = wd.charAt(0).toUpperCase() + wd.slice(1);
-	const label = `${wd} ${get("day")}/${get("month")}`;
-	return isToday ? `Hoje · ${label}` : label;
-}
-
-const todayStr = getLocalDateStr(new Date());
-const groups = new Map<string, any[]>();
-for (const p of points) {
-	const dStr = getLocalDateStr(new Date(p.timestamp));
-	if (dStr < todayStr) continue;
-	const arr = groups.get(dStr) ?? [];
-	arr.push(p);
-	groups.set(dStr, arr);
-}
-
-let sortedDates = Array.from(groups.keys()).sort();
-if (sortedDates.length === 0) {
-	const fallbackGroups = new Map<string, any[]>();
-	for (const p of points) {
-		const dStr = getLocalDateStr(new Date(p.timestamp));
-		const arr = fallbackGroups.get(dStr) ?? [];
-		arr.push(p);
-		fallbackGroups.set(dStr, arr);
-	}
-	sortedDates = Array.from(fallbackGroups.keys()).sort();
-	for (const [k, v] of fallbackGroups.entries()) {
-		groups.set(k, v);
-	}
-}
-
-const targetDates = sortedDates.slice(0, 5);
-const fiveDaysForecast = targetDates.map((dateStr, dayIdx) => {
-	const dayPoints = groups.get(dateStr) ?? [];
-	const maxIqar = Math.max(...dayPoints.map((p: any) => p.iqar));
-	const avgIqar = Math.round(
-		dayPoints.reduce((acc: number, p: any) => acc + p.iqar, 0) /
-			Math.max(1, dayPoints.length),
-	);
-	const peakPoint =
-		dayPoints.find((p: any) => p.iqar === maxIqar) || dayPoints[0];
-	const isToday = dateStr === todayStr || dayIdx === 0;
-	return {
-		dayNumber: dayIdx + 1,
-		date: dateStr,
-		label: formatDayCardLabel(dateStr, isToday),
-		maxIqar,
-		avgIqar,
-		classification: peakPoint.classification,
-		primary: String(peakPoint.primary).toUpperCase(),
-	};
-});
+// Toda a lógica de dia local, rótulo de cartão e estado "desatualizado" vive em
+// ../../lib/forecast-days — é a mesma cópia usada pelo Dashboard.svelte.
+const {
+	cards: fiveDaysForecast,
+	isStale,
+	newestTimestamp,
+} = buildFiveDayCards(points as any);
+const dataAge = describeDataAge(newestTimestamp);
+const staleNotice = formatStaleNotice(dataAge);
 
 function badgeClass(cls?: string): string {
 	switch (cls) {
@@ -218,12 +155,22 @@ function iqarIcon(cls?: string): string {
 
   <!-- Visão Geral de 5 Dias por Machine Learning da Estação -->
   <div class="mb-6 anim-fade-up-d1">
+    {isStale && (
+      <div class="mb-4 bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-2xl px-4 py-3 flex items-start gap-2.5" role="alert">
+        <span class="i-ph-warning-fill w-4 h-4 text-amber-600 shrink-0 mt-0.5"></span>
+        <span>
+          <strong>{staleNotice.title}.</strong> {staleNotice.body}
+        </span>
+      </div>
+    )}
     <div class="mb-2.5 flex items-center justify-between">
       <h2 class="text-sm font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-sky-500"></span>
-        Prognóstico de 5 Dias (120 Horas Contínuas)
+        {isStale ? "Série Observada por Dia" : "Prognóstico de 5 Dias (120 Horas Contínuas)"}
       </h2>
-      <span class="text-xs text-slate-500 font-mono">Resolução Horária CONAMA 491</span>
+      <span class="text-xs text-slate-500 font-mono">
+        {dataAge.observedAt ? `Dados até ${dataAge.observedAt} (${dataAge.ageText})` : "Resolução Horária CONAMA 491"}
+      </span>
     </div>
     <div class="flex sm:grid sm:grid-cols-3 lg:grid-cols-5 gap-3.5 overflow-x-auto pb-2 snap-x snap-mandatory">
       {fiveDaysForecast.map((day, idx) => (

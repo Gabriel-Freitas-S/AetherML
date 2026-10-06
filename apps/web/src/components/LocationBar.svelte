@@ -90,17 +90,45 @@ const sourceLabel: Record<string, string> = {
     </div>
   </div>
 
-  <div class="flex flex-col sm:flex-row gap-2 md:ml-auto w-full md:w-auto">
-    <StationPicker
-      stations={stations}
-      activeId={activeId}
-      onChange={(id) => {
-        gpsError = null;
-        onChange?.(id, "manual");
-      }}
-      label="Selecionar estação de monitoramento"
-    />
-    <button onclick={useGps} disabled={gpsLoading} class="btn-primary whitespace-nowrap min-h-[44px] disabled:opacity-60 cursor-pointer">
+  <!-- `min-w-0` + `shrink-0` + um TETO QUE NÃO CONTRADIZ O PISO do seletor.
+
+       `StationPicker` declara `sm:min-w-[260px]` no próprio elemento. `max-width`
+       num pai de bloco NÃO limita o `min-width` do filho: os dois se resolvem
+       contra larguras diferentes. Com o teto em 240px, a caixa encolhia para 240
+       e o seletor, de piso 260px, transbordava 20px para fora dela. O `gap-2`
+       inteiro virava −12px: o botão azul ficava 12px POR CIMA da borda direita
+       do select (medido: −12px de 768px em diante; com o anel de foco de 4px,
+       −16px). Dois controles viravam uma massa só.
+
+       O teto agora é `sm:max-w-[260px]`, igual ao piso do seletor: nunca há
+       transbordo, e sobra para o `gap-3` — 12px MEDIDOS de folga real entre as
+       duas bordas pintadas, de 320px a 1440px, sem exceção.
+
+       O anel de foco não consome essa folga até o zero. Com o teclado, o
+       `:focus-visible` global (2px de traço com `outline-offset: 2px`) põe 4px
+       do lado de FORA da caixa; o `focus:ring-2` do seletor (2px) fica dentro
+       desses mesmos 4px. O caso reportado — o botão focado, o seletor ocioso —
+       deixa 8px de branco entre as duas bordas. Focar os dois ao mesmo tempo
+       daria 4px, ainda positivo: o defeito era de 12px de SOBREPOSIÇÃO, não de
+       falta de folga.
+
+       Abaixo de `sm` a linha já é `flex-col` com `stretch`: select em cima e
+       botão embaixo, ambos na largura inteira (medido a 360px: 280px e 280px,
+       12px de folga vertical). `min-w-0` e `shrink-0` continuam de pé — são eles
+       que impedem o overflow horizontal de 30px que a sessão anterior corrigiu. -->
+  <div class="flex flex-col sm:flex-row gap-3 md:ml-auto w-full md:w-auto min-w-0">
+    <div class="min-w-0 sm:max-w-[260px]">
+      <StationPicker
+        stations={stations}
+        activeId={activeId}
+        onChange={(id) => {
+          gpsError = null;
+          onChange?.(id, "manual");
+        }}
+        label="Selecionar estação de monitoramento"
+      />
+    </div>
+    <button onclick={useGps} disabled={gpsLoading} class="btn-primary w-full sm:w-auto whitespace-nowrap min-h-[44px] shrink-0 disabled:opacity-60 cursor-pointer">
       {#if gpsLoading}
         <span class="i-ph-spinner-bold w-4 h-4 animate-spin"></span>
         Localizando…

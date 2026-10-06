@@ -336,6 +336,12 @@ def run_backtest(
 
 
 if __name__ == "__main__":
-    ver = sys.argv[1] if len(sys.argv) > 1 else "v2026.38.2"
-    order = sys.argv[2] if len(sys.argv) > 2 else "v1"
+    # Sem argumento: models/registry.json decide versão e ordem (mesma regra de
+    # predict_forecast). Default fixo v2026.38.2/v1 publicava métricas do modelo
+    # errado sem erro visível.
+    from ml.training.predict_forecast import active_model
+
+    reg_ver, reg_order = active_model()
+    ver = sys.argv[1] if len(sys.argv) > 1 else reg_ver
+    order = sys.argv[2] if len(sys.argv) > 2 else reg_order
     run_backtest(ver, order=order)

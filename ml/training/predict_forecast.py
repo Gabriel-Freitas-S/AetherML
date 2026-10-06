@@ -6,10 +6,14 @@ Para cada estação: monta as 120h futuras com meteorologia REAL de forecast
 5 poluentes com os boosters de models/<versao>/*.txt.
 
 Saída: apps/web/public/data/stations-data.json no MESMO formato de antes
-(station + points[{hour, day, timestamp, features[25], observed}]), de modo
+(station + points[{hour, day, timestamp, features[25|30], observed}]), de modo
 que hero, cards, mapa e gráfico passam a exibir a saída do modelo real.
 
-Uso: `python ml/training/predict_forecast.py [versao]`
+Uso: `python ml/training/predict_forecast.py [versao] [ordem]`
+
+Sem argumentos usa models/registry.json (active_version + feature_order_version).
+ABORTA se a versão escolhida não tiver calibration.json — nunca prever sem
+calibração silenciosamente.
 """
 
 import json
@@ -25,6 +29,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 import lightgbm as lgb
 from ml.training.build_real_dataset import (
     AQ_KEYS,
+    FEATURE_NAMES,
     TARGETS,
     row_to_features,
 )
@@ -32,6 +37,36 @@ from ml.training.calibrate import calibrate_value, load_full
 
 HOURS = 120
 CLAMPS = {"pm25": 1.0, "pm10": 2.0, "o3": 2.0, "no2": 3.0, "so2": 0.5}
+REGISTRY_PATH = os.path.join("models", "registry.json")
+
+
+def active_model(registry_path: str = REGISTRY_PATH) -> tuple:
+    """(versão, ordem) do modelo ativo segundo models/registry.json."""
+    with open(registry_path, "r", encoding="utf-8") as f:
+        reg = json.load(f)
+    version = reg.get("active_version")
+    if not version:
+        raise RuntimeError(f"{registry_path} sem 'active_version'")
+    return version, reg.get("feature_order_version")
+
+
+def order_for_nfeatures(n_features: int) -> str:
+    """Ordem das features que o booster treinado espera (25=v1, 30=v2)."""
+    return "v2" if n_features > len(FEATURE_NAMES) else "v1"
+
+
+def require_calibration(version: str) -> dict:
+    """Carrega calibration.json ou ABORTA — números sem calibração são piores
+    que nenhum número (calibrate.load_full devolveria mapas vazios em silêncio)."""
+    path = os.path.join("models", version, "calibration.json")
+    cal = load_full(path)
+    if not cal["bias"] and not cal["isotonic"]:
+        raise RuntimeError(
+            f"calibration.json ausente ou vazio para {version} ({path}). "
+            "Reexecute ml/training/retrain_real.py ou escolha uma versão "
+            "calibrada antes de gerar stations-data.json."
+        )
+    return cal
 
 
 def load_boosters(version: str) -> dict:
@@ -44,14 +79,22 @@ def load_boosters(version: str) -> dict:
 
 def predict_all(
     raw_path: str = "ml/data/openmeteo_raw.json",
-    version: str = "v2026.38.2",
+    version: str | None = None,
     out_path: str = os.path.join("apps", "web", "public", "data", "stations-data.json"),
-    order: str = "v1",
+    order: str | None = None,
+    registry_path: str = REGISTRY_PATH,
 ) -> dict:
+    if version is None or order is None:
+        active_ver, active_order = active_model(registry_path)
+        version = version or active_ver
+        order = order or active_order
+    cal = require_calibration(version)
+
     with open(raw_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
     boosters = load_boosters(version)
-    cal = load_full(os.path.join("models", version, "calibration.json"))
+    if order is None:
+        order = order_for_nfeatures(boosters[TARGETS[0]].num_feature())
     cutoff = (raw.get("fetched_at") or "")[:13]
 
     bundle = {}
@@ -143,6 +186,7 @@ def predict_all(
 
 
 if __name__ == "__main__":
-    ver = sys.argv[1] if len(sys.argv) > 1 else "v2026.38.2"
-    order = sys.argv[2] if len(sys.argv) > 2 else "v1"
+    # Sem argumento: models/registry.json decide versão e ordem das features.
+    ver = sys.argv[1] if len(sys.argv) > 1 else None
+    order = sys.argv[2] if len(sys.argv) > 2 else None
     predict_all(version=ver, order=order)
