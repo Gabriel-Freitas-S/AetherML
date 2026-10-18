@@ -19,7 +19,6 @@ calibração silenciosamente.
 import json
 import os
 import sys
-from datetime import datetime
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -55,9 +54,44 @@ def order_for_nfeatures(n_features: int) -> str:
     return "v2" if n_features > len(FEATURE_NAMES) else "v1"
 
 
-def require_calibration(version: str) -> dict:
-    """Carrega calibration.json ou ABORTA — números sem calibração são piores
-    que nenhum número (calibrate.load_full devolveria mapas vazios em silêncio)."""
+def resolve_target_model_paths(registry: dict, default_version: str) -> dict:
+    """Resolve o caminho de booster .txt para cada alvo respeitando a versão do registry."""
+    paths = {}
+    models_meta = registry.get("models", {})
+    for t in TARGETS:
+        t_version = (models_meta.get(t, {}).get("version") if isinstance(models_meta.get(t), dict) else None) or default_version
+        path = os.path.join("models", t_version, f"{t}.txt")
+        if not os.path.exists(path):
+            path = os.path.join("models", default_version, f"{t}.txt")
+        paths[t] = path
+    return paths
+
+
+def require_calibration(version: str, registry: dict | None = None) -> dict:
+    """Carrega calibration.json ou ABORTA — suporta resolução por alvo via registry."""
+    if registry and "models" in registry:
+        models_meta = registry.get("models", {})
+        combined_cal = {"bias": {}, "isotonic": {}}
+        loaded_versions: dict = {}
+        for t in TARGETS:
+            t_version = (models_meta.get(t, {}).get("version") if isinstance(models_meta.get(t), dict) else None) or version
+            if t_version not in loaded_versions:
+                path = os.path.join("models", t_version, "calibration.json")
+                if not os.path.exists(path):
+                    path = os.path.join("models", version, "calibration.json")
+                cal = load_full(path)
+                if not cal["bias"] and not cal["isotonic"]:
+                    raise RuntimeError(
+                        f"calibration.json ausente ou vazio para {t_version} ({path}). "
+                        "Reexecute ml/training/retrain_real.py ou escolha uma versão "
+                        "calibrada antes de gerar stations-data.json."
+                    )
+                loaded_versions[t_version] = cal
+            t_cal = loaded_versions[t_version]
+            combined_cal["bias"][t] = t_cal["bias"].get(t, 0.0)
+            combined_cal["isotonic"][t] = t_cal["isotonic"].get(t, {"x": [], "y": []})
+        return combined_cal
+
     path = os.path.join("models", version, "calibration.json")
     cal = load_full(path)
     if not cal["bias"] and not cal["isotonic"]:
@@ -69,8 +103,15 @@ def require_calibration(version: str) -> dict:
     return cal
 
 
-def load_boosters(version: str) -> dict:
+def load_boosters(version: str, registry: dict | None = None) -> dict:
+    """Carrega os boosters LightGBM por alvo respeitando a versão do registry."""
     boosters = {}
+    if registry and "models" in registry:
+        paths = resolve_target_model_paths(registry, version)
+        for t in TARGETS:
+            boosters[t] = lgb.Booster(model_file=paths[t])
+        return boosters
+
     for t in TARGETS:
         path = os.path.join("models", version, f"{t}.txt")
         boosters[t] = lgb.Booster(model_file=path)
@@ -84,15 +125,24 @@ def predict_all(
     order: str | None = None,
     registry_path: str = REGISTRY_PATH,
 ) -> dict:
+    reg = {}
+    if os.path.exists(registry_path):
+        with open(registry_path, "r", encoding="utf-8") as f:
+            reg = json.load(f)
+
     if version is None or order is None:
-        active_ver, active_order = active_model(registry_path)
+        active_ver = reg.get("active_version")
+        active_order = reg.get("feature_order_version")
+        if not active_ver:
+            active_ver, active_order = active_model(registry_path)
         version = version or active_ver
         order = order or active_order
-    cal = require_calibration(version)
+
+    cal = require_calibration(version, registry=reg)
 
     with open(raw_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
-    boosters = load_boosters(version)
+    boosters = load_boosters(version, registry=reg)
     if order is None:
         order = order_for_nfeatures(boosters[TARGETS[0]].num_feature())
     cutoff = (raw.get("fetched_at") or "")[:13]

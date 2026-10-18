@@ -15,7 +15,7 @@ import os
 import sys
 import json
 import argparse
-from typing import Dict, Any, List
+from datetime import datetime, timedelta
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -23,10 +23,9 @@ if hasattr(sys.stdout, "reconfigure"):
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from ml.training.train_lightgbm import train_models, TARGETS
-from ml.training.calibrate import save_calibration
 from ml.training.export_onnx import export_to_onnx
 from ml.training.export_saabas import export_saabas_topologies
-from ml.training.registry import load_registry, update_registry_paired
+from ml.training.registry import load_registry
 from ml.training.fetch_from_d1 import resolve_training_data
 from ml.training.build_real_dataset import build_real_dataset
 from ml.training.evaluate_champion import (
@@ -47,6 +46,7 @@ def parse_args():
     parser.add_argument("pos_compact", nargs="?", default=None, help="'compact' para modo rápido")
 
     parser.add_argument("--version", "-v", dest="flag_version", default=None, help="Versão do modelo")
+    parser.add_argument("--dataset", "-d", dest="flag_dataset", default=None, help="Caminho do dataset de treino")
     parser.add_argument("--source", "-s", dest="source", choices=["d1", "local"], default="d1", help="Fonte dos poluentes: d1 ou local")
     parser.add_argument("--epsilon", "-e", dest="epsilon", type=float, default=None, help="Margem de não-degradação")
     parser.add_argument("--compact", action="store_true", help="Modo compacto (árvores menores)")
@@ -57,8 +57,8 @@ def parse_args():
 
     args = parser.parse_args()
 
-    version = args.flag_version or args.pos_version or "v2026.38.2"
-    dataset = args.pos_dataset or "ml/data/train_dataset_real.json"
+    version = args.flag_version or args.pos_version or "v2026.38.5"
+    dataset = args.flag_dataset or args.pos_dataset or "ml/data/train_dataset_real.json"
     compact = args.compact or (args.pos_compact == "compact")
     epsilon_env = float(os.environ.get("CHALLENGER_EPSILON", "0.0"))
     epsilon = args.epsilon if args.epsilon is not None else epsilon_env
@@ -124,11 +124,14 @@ def main() -> None:
     )
 
     # 3. Geração do Dataset de Treino (exclui o holdout para evitar data leakage)
-    print(f"[AetherML ML] Gerando dataset de treino sem o holdout (end_cutoff={holdout_start[:13]})...")
+    # end_cutoff = holdout_start menos 1h para garantir zero sobreposição entre treino e holdout
+    dt_holdout_start = datetime.fromisoformat(holdout_start[:13] + ":00:00")
+    end_cutoff = (dt_holdout_start - timedelta(hours=1)).isoformat()[:13]
+    print(f"[AetherML ML] Gerando dataset de treino sem o holdout (end_cutoff={end_cutoff})...")
     build_real_dataset(
         raw_path=raw_for_train_path,
         out_path=dataset_path,
-        end_cutoff=holdout_start[:13],
+        end_cutoff=end_cutoff,
         order=order,
     )
 
@@ -157,12 +160,21 @@ def main() -> None:
 
     # 6. Carrega Champion ativo para avaliação pareada
     registry = load_registry("models/registry.json")
-    champ_version = registry.get("active_version", "desconhecida")
-    try:
-        champion_boosters = load_champion_boosters(registry, models_dir="models")
-    except Exception as e:
-        print(f"[AVISO AetherML] Não foi possível carregar boosters do Champion ({e}). Promovendo Challenger integralmente.")
+    champ_version = registry.get("active_version")
+    champ_dir = os.path.join("models", champ_version) if champ_version else None
+
+    # Distingue champion INEXISTENTE (segue criando baseline) de champion CORROMPIDO (aborta)
+    if not champ_version or not os.path.exists("models/registry.json") or not (champ_dir and os.path.exists(champ_dir)):
+        print(f"[AetherML ML] Champion ausente/inexistente em models/ ({champ_version}). Estabelecendo Challenger ({version}) como baseline.")
         champion_boosters = None
+    else:
+        try:
+            champion_boosters = load_champion_boosters(registry, models_dir="models")
+        except Exception as e:
+            raise RuntimeError(
+                f"[ERRO CRÍTICO AetherML] Champion ativo '{champ_version}' está corrompido ou incompleto: {e}. "
+                f"Abortando retreino para evitar promoção espúria sem avaliação pareada."
+            ) from e
 
     # 7. Comparação Pareada Champion vs Challenger na MESMA janela
     if champion_boosters is not None:

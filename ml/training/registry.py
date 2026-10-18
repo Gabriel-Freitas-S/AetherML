@@ -79,10 +79,10 @@ def update_registry_paired(
             if target not in models_meta:
                 models_meta[target] = {
                     "onnx_file": f"{target}.onnx",
-                    "sha256": onnx_results[target]["sha256"],
-                    "size_kb": onnx_results[target]["size_kb"],
+                    "sha256": None,
+                    "size_kb": None,
                     "topology_file": f"{target}.topology.json",
-                    "metrics": challenger_metrics[target],
+                    "metrics": challenger_metrics.get(target, {}),
                     "version": active_version,
                     "promoted_at": ts_now,
                 }

@@ -111,6 +111,62 @@ def test_predict_all_aborts_instead_of_writing_uncalibrated_json():
         )
 
 
+def test_predict_loads_per_target_version_from_registry():
+    """OBRIGATÓRIO (2): Prova que cada alvo carrega da versão registrada no registry."""
+    from ml.training.predict_forecast import load_boosters, require_calibration
+    tmp = tempfile.mkdtemp()
+    cwd = os.getcwd()
+    try:
+        models = os.path.join(tmp, "models")
+        os.makedirs(os.path.join(models, "vChampion"), exist_ok=True)
+        os.makedirs(os.path.join(models, "vChallenger"), exist_ok=True)
+
+        # Grava arquivos de calibração distintos para Champion e Challenger
+        champ_cal = {"bias": {"pm25": -1.0, "o3": -2.0, "pm10": -3.0, "no2": -4.0, "so2": -5.0}, "isotonic": {}}
+        chall_cal = {"bias": {"pm25": -99.0, "o3": -88.0, "pm10": -77.0, "no2": -66.0, "so2": -55.0}, "isotonic": {}}
+        with open(os.path.join(models, "vChampion", "calibration.json"), "w") as f:
+            json.dump(champ_cal, f)
+        with open(os.path.join(models, "vChallenger", "calibration.json"), "w") as f:
+            json.dump(chall_cal, f)
+
+        # Boosters fictícios: identificáveis pelo arquivo
+        for t in ["pm25", "pm10", "o3", "no2", "so2"]:
+            with open(os.path.join(models, "vChampion", f"{t}.txt"), "w") as f:
+                f.write(f"champion_model_{t}")
+            with open(os.path.join(models, "vChallenger", f"{t}.txt"), "w") as f:
+                f.write(f"challenger_model_{t}")
+
+        # Registry com versões mistas: pm25 é vChallenger, o3 é vChampion
+        registry = {
+            "active_version": "vChallenger",
+            "models": {
+                "pm25": {"version": "vChallenger"},
+                "o3": {"version": "vChampion"},
+                "pm10": {"version": "vChampion"},
+                "no2": {"version": "vChampion"},
+                "so2": {"version": "vChampion"},
+            },
+        }
+
+        os.chdir(tmp)
+        # Testa calibração resolvida por alvo
+        cal = require_calibration("vChallenger", registry=registry)
+        assert cal["bias"]["pm25"] == -99.0, f"PM25 deveria vir do Challenger, obtido {cal['bias']['pm25']}"
+        assert cal["bias"]["o3"] == -2.0, f"O3 deveria vir do Champion, obtido {cal['bias']['o3']}"
+        assert cal["bias"]["pm10"] == -3.0, f"PM10 deveria vir do Champion, obtido {cal['bias']['pm10']}"
+
+        # Testa boosters resolvidos por alvo (mockando lightgbm.Booster se necessário)
+        # Aqui verificamos que a função busca o caminho correto por alvo
+        from ml.training.predict_forecast import resolve_target_model_paths
+        paths = resolve_target_model_paths(registry, "vChallenger")
+        assert "vChallenger" in paths["pm25"]
+        assert "vChampion" in paths["o3"]
+        assert "vChampion" in paths["pm10"]
+    finally:
+        os.chdir(cwd)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_active_model_reads_registry()
     test_order_for_nfeatures_maps_booster_width_to_order()
@@ -118,4 +174,5 @@ if __name__ == "__main__":
     test_require_calibration_raises_when_file_is_empty_maps()
     test_require_calibration_returns_maps_when_present()
     test_predict_all_aborts_instead_of_writing_uncalibrated_json()
-    print("[OK] test_predict_forecast: 6/6 verdes")
+    test_predict_loads_per_target_version_from_registry()
+    print("[OK] test_predict_forecast: 7/7 verdes")

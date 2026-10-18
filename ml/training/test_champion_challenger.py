@@ -25,6 +25,7 @@ from ml.training.evaluate_champion import (
     compare_champion_challenger,
     apply_promotion,
     compute_metrics,
+    load_champion_boosters,
 )
 from ml.training.registry import load_registry, update_registry_paired
 
@@ -39,6 +40,11 @@ class MockBooster:
         if len(self._preds) == n:
             return self._preds
         return np.resize(self._preds, n)
+
+    def save_model(self, path: str):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("mock_model_dump")
 
 
 def test_holdout_refusal_when_insufficient_data():
@@ -258,30 +264,295 @@ def test_transactional_promotion_and_registry_update():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def test_dry_run_does_not_modify_public():
-    tmp_dir = tempfile.mkdtemp(prefix="aetherml_dryrun_test_")
-    try:
-        public_root = os.path.join(tmp_dir, "apps", "web", "public", "models")
-        os.makedirs(public_root, exist_ok=True)
-        pm25_pub = os.path.join(public_root, "pm25.onnx")
-        with open(pm25_pub, "wb") as f:
-            f.write(b"champion_original")
+def test_extract_holdout_skips_nulls_defensively():
+    # Cria raw sintético com 220 horas e insere valores None propositais
+    n_hours = 220
+    times = [f"2026-07-{d:02d}T{h:02d}:00" for d in range(1, 11) for h in range(24)][:n_hours]
+    pm25_vals = [10.0 + (i % 5) for i in range(n_hours)]
+    temp_vals = [22.0 for _ in range(n_hours)]
+    pblh_vals = [500.0 for _ in range(n_hours)]
 
-        decisions = {
-            "pm25": {"promote": True, "challenger": {"rmse": 1.0, "mae": 0.8}, "champion": {"rmse": 2.0}},
-        }
-        # Em dry-run, apply_promotion NÃO é chamado
-        # Simula a lógica do retrain_real: se dry_run=True, public não muda
-        with open(pm25_pub, "rb") as f:
-            content = f.read()
-        assert content == b"champion_original"
+    # Insere None propositalmente em 3 horas dentro da janela de holdout (horas finais)
+    pm25_vals[200] = None  # Alvo None
+    temp_vals[205] = None  # Meteo None
+    pblh_vals[210 - 2] = None  # PBLH no lag de 6h None
+
+    raw = {
+        "fetched_at": times[-1],
+        "stations": {
+            "ramqar_camburi": {
+                "meta": {"id": "ramqar_camburi", "municipality": "Vitória"},
+                "aq_hourly": {
+                    "time": times,
+                    "pm2_5": pm25_vals,
+                    "pm10": [20.0 for _ in range(n_hours)],
+                    "ozone": [30.0 for _ in range(n_hours)],
+                    "nitrogen_dioxide": [15.0 for _ in range(n_hours)],
+                    "sulphur_dioxide": [5.0 for _ in range(n_hours)],
+                    "carbon_monoxide": [100.0 for _ in range(n_hours)],
+                },
+                "meteo_hourly": {
+                    "time": times,
+                    "temperature_2m": temp_vals,
+                    "relative_humidity_2m": [70.0 for _ in range(n_hours)],
+                    "wind_speed_10m": [10.0 for _ in range(n_hours)],
+                    "wind_direction_10m": [90.0 for _ in range(n_hours)],
+                    "pressure_msl": [1013.0 for _ in range(n_hours)],
+                    "shortwave_radiation": [100.0 for _ in range(n_hours)],
+                    "boundary_layer_height": pblh_vals,
+                },
+            }
+        },
+    }
+
+    # Deve pular defensivamente as horas com None e extrair as horas válidas restantes
+    X_holdout, y_holdout, _, _ = extract_holdout_from_raw(raw, holdout_hours=168)
+    assert len(X_holdout) < 168, "Deveria ter pulado as horas com None"
+    # 1h pm25 + 1h temp + 6h com pblh no histórico + 1h pontual = 159 válidas
+    assert len(X_holdout) == 159, f"Deveria ter mantido 159 horas válidas, obtido {len(X_holdout)}"
+    assert len(y_holdout["pm25"]) == len(X_holdout)
+
+
+def test_extract_holdout_fails_when_all_hours_are_null():
+    n_hours = 220
+    times = [f"2026-07-{d:02d}T{h:02d}:00" for d in range(1, 11) for h in range(24)][:n_hours]
+    raw = {
+        "fetched_at": times[-1],
+        "stations": {
+            "ramqar_camburi": {
+                "meta": {"id": "ramqar_camburi"},
+                "aq_hourly": {
+                    "time": times,
+                    "pm2_5": [None] * n_hours,
+                    "pm10": [None] * n_hours,
+                    "ozone": [None] * n_hours,
+                    "nitrogen_dioxide": [None] * n_hours,
+                    "sulphur_dioxide": [None] * n_hours,
+                    "carbon_monoxide": [None] * n_hours,
+                },
+                "meteo_hourly": {
+                    "time": times,
+                    "temperature_2m": [22.0] * n_hours,
+                    "relative_humidity_2m": [70.0] * n_hours,
+                    "wind_speed_10m": [10.0] * n_hours,
+                    "wind_direction_10m": [90.0] * n_hours,
+                    "pressure_msl": [1013.0] * n_hours,
+                    "shortwave_radiation": [100.0] * n_hours,
+                    "boundary_layer_height": [500.0] * n_hours,
+                },
+            }
+        },
+    }
+
+    try:
+        extract_holdout_from_raw(raw, holdout_hours=168)
+        assert False, "Deveria falhar quando todas as horas contêm None"
+    except ValueError as e:
+        assert "válida" in str(e).lower() or "nulos" in str(e).lower()
+
+
+def test_paired_evaluation_uses_raw_float_rmse():
+    n = 10
+    X_holdout = np.zeros((n, 25), dtype=np.float32)
+    y_true = {"pm25": np.zeros(n, dtype=np.float32)}
+
+    # Champion: erro constante 10.0000 -> RMSE = 10.0000
+    # Challenger: erro constante 10.0040 -> RMSE = 10.0040 (pior)
+    # Arredondado a 2 casas: ambos seriam 10.00 (falso empate)
+    # Com float cru: 10.0040 > 10.0000 -> promote deve ser False
+    champ_preds = np.full(n, 10.0)
+    chall_preds = np.full(n, 10.004)
+
+    champion_models = {"pm25": MockBooster(champ_preds)}
+    challenger_models = {"pm25": MockBooster(chall_preds)}
+
+    decisions = compare_champion_challenger(
+        champion_models=champion_models,
+        challenger_models=challenger_models,
+        X_holdout=X_holdout,
+        y_holdout=y_true,
+        epsilon=0.0,
+        targets=["pm25"],
+    )
+
+    assert decisions["pm25"]["champion"]["rmse"] == 10.0
+    assert decisions["pm25"]["challenger"]["rmse"] == 10.0
+    assert decisions["pm25"]["promote"] is False, "Decisão deve ser feita em float cru, não arredondado"
+
+
+def test_apply_promotion_fails_if_artifact_missing():
+    tmp_dir = tempfile.mkdtemp(prefix="aetherml_promo_fail_")
+    try:
+        chall_dir = os.path.join(tmp_dir, "challenger")
+        pub_dir = os.path.join(tmp_dir, "public")
+        os.makedirs(chall_dir, exist_ok=True)
+        os.makedirs(pub_dir, exist_ok=True)
+
+        decisions = {"pm25": {"promote": True}}
+        # src_onnx NÃO existe em chall_dir
+        try:
+            apply_promotion(
+                decisions=decisions,
+                challenger_version="vChallenger",
+                challenger_dir=chall_dir,
+                onnx_meta={"pm25": {"sha256": "x", "size_kb": 1}},
+                public_models_dir=pub_dir,
+                registry_file=os.path.join(tmp_dir, "registry.json"),
+            )
+            assert False, "Deveria ter falhado com FileNotFoundError"
+        except FileNotFoundError as e:
+            assert "ausente" in str(e).lower() or "pm25" in str(e).lower()
     finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def test_retrain_aborts_on_corrupted_champion():
+    tmp_dir = tempfile.mkdtemp(prefix="aetherml_corrupt_champ_")
+    try:
+        reg_data = {
+            "active_version": "vCorruptChamp",
+            "models": {t: {"version": "vCorruptChamp"} for t in ["pm25", "pm10", "o3", "no2", "so2"]},
+        }
+        # Diretório da versão ativa existe, mas falta o booster .txt
+        os.makedirs(os.path.join(tmp_dir, "vCorruptChamp"), exist_ok=True)
+
+        try:
+            load_champion_boosters(reg_data, models_dir=tmp_dir)
+            assert False, "Deveria lançar FileNotFoundError para boosters ausentes"
+        except FileNotFoundError as e:
+            assert "não encontrado" in str(e).lower()
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def test_synthetic_target_does_not_hash_challenger():
+    tmp_dir = tempfile.mkdtemp(prefix="aetherml_synth_test_")
+    try:
+        reg_file = os.path.join(tmp_dir, "registry.json")
+        pub_file = os.path.join(tmp_dir, "pub_reg.json")
+        initial_reg = {
+            "active_version": "vChamp",
+            "targets": ["pm25", "pm10"],
+            "models": {
+                "pm25": {"version": "vChamp", "sha256": "sha_orig_pm25", "size_kb": 10.0}
+            },
+        }
+        with open(reg_file, "w") as f:
+            json.dump(initial_reg, f)
+
+        # Promove apenas pm25; pm10 é sintético não promovido
+        decisions = {
+            "pm25": {"promote": True},
+            "pm10": {"promote": False},
+        }
+        onnx_results = {
+            "pm25": {"sha256": "sha_new_pm25", "size_kb": 12.0},
+            "pm10": {"sha256": "sha_new_pm10", "size_kb": 14.0},
+        }
+        challenger_metrics = {
+            "pm25": {"rmse": 1.0},
+            "pm10": {"rmse": 2.0},
+        }
+
+        updated = update_registry_paired(
+            challenger_version="vChall",
+            promoted_targets=["pm25"],
+            onnx_results=onnx_results,
+            challenger_metrics=challenger_metrics,
+            registry_file=reg_file,
+            public_file=pub_file,
+        )
+
+        assert updated["models"]["pm25"]["version"] == "vChall"
+        assert updated["models"]["pm25"]["sha256"] == "sha_new_pm25"
+        # pm10 sintético mantido no champion NÃO deve herdar o sha256 do challenger!
+        assert updated["models"]["pm10"]["version"] == "vChamp"
+        assert updated["models"]["pm10"]["sha256"] is None
+        assert updated["models"]["pm10"]["size_kb"] is None
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def test_dry_run_invokes_pipeline_without_modifying_public():
+    tmp_dir = tempfile.mkdtemp(prefix="aetherml_dryrun_real_")
+    try:
+        pub_dir = os.path.join(tmp_dir, "apps", "web", "public", "models")
+        os.makedirs(pub_dir, exist_ok=True)
+        orig_file = os.path.join(pub_dir, "pm25.onnx")
+        with open(orig_file, "wb") as f:
+            f.write(b"champion_original_bytes")
+
+        import unittest.mock as mock
+        from ml.training.retrain_real import main
+
+        mock_booster = MockBooster(np.full(10, 20.0))
+        mock_train_res = {
+            "models": {t: mock_booster for t in ["pm25", "pm10", "o3", "no2", "so2"]},
+            "metrics": {t: {"rmse": 1.0, "mae": 0.5, "r2": 0.9} for t in ["pm25", "pm10", "o3", "no2", "so2"]},
+            "feature_names": [f"f{i}" for i in range(25)],
+            "bias": {},
+            "isotonic": {},
+        }
+
+        n_hours = 220
+        times = [f"2026-07-{d:02d}T{h:02d}:00" for d in range(1, 11) for h in range(24)][:n_hours]
+        raw_data = {
+            "fetched_at": times[-1],
+            "stations": {
+                "ramqar_camburi": {
+                    "meta": {"id": "ramqar_camburi"},
+                    "aq_hourly": {
+                        "time": times,
+                        "pm2_5": [10.0] * n_hours,
+                        "pm10": [20.0] * n_hours,
+                        "ozone": [30.0] * n_hours,
+                        "nitrogen_dioxide": [15.0] * n_hours,
+                        "sulphur_dioxide": [5.0] * n_hours,
+                        "carbon_monoxide": [100.0] * n_hours,
+                    },
+                    "meteo_hourly": {
+                        "time": times,
+                        "temperature_2m": [22.0] * n_hours,
+                        "relative_humidity_2m": [70.0] * n_hours,
+                        "wind_speed_10m": [10.0] * n_hours,
+                        "wind_direction_10m": [90.0] * n_hours,
+                        "pressure_msl": [1013.0] * n_hours,
+                        "shortwave_radiation": [100.0] * n_hours,
+                        "boundary_layer_height": [500.0] * n_hours,
+                    },
+                }
+            },
+        }
+        raw_path = os.path.join(tmp_dir, "raw.json")
+        with open(raw_path, "w") as f:
+            json.dump(raw_data, f)
+
+        old_argv = sys.argv
+        sys.argv = [
+            "retrain_real.py",
+            "--dry-run",
+            "--raw", raw_path,
+            "--source", "local",
+            "--dataset", os.path.join(tmp_dir, "dataset.json"),
+            "--version", "v2026.test.1",
+        ]
+
+        with mock.patch("ml.training.retrain_real.train_models", return_value=mock_train_res), \
+             mock.patch("ml.training.retrain_real.PUBLIC_MODELS", pub_dir), \
+             mock.patch("ml.training.retrain_real.export_to_onnx", return_value={t: {"sha256": "x", "size_kb": 1} for t in ["pm25", "pm10", "o3", "no2", "so2"]}), \
+             mock.patch("ml.training.retrain_real.export_saabas_topologies"):
+            main()
+
+        # Prova que o dry-run real NÃO tocou no arquivo public/models
+        with open(orig_file, "rb") as f:
+            assert f.read() == b"champion_original_bytes", "Dry-run não deve tocar nos arquivos em public/models!"
+    finally:
+        sys.argv = old_argv
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def test_retrain_args_parsing():
     from ml.training.retrain_real import parse_args
-    import sys
 
     old_argv = sys.argv
     try:
@@ -299,8 +570,14 @@ def test_retrain_args_parsing():
 if __name__ == "__main__":
     test_holdout_refusal_when_insufficient_data()
     test_extract_holdout_exact_window()
+    test_extract_holdout_skips_nulls_defensively()
+    test_extract_holdout_fails_when_all_hours_are_null()
     test_paired_evaluation_and_promotion_decision()
+    test_paired_evaluation_uses_raw_float_rmse()
     test_transactional_promotion_and_registry_update()
-    test_dry_run_does_not_modify_public()
+    test_apply_promotion_fails_if_artifact_missing()
+    test_retrain_aborts_on_corrupted_champion()
+    test_synthetic_target_does_not_hash_challenger()
+    test_dry_run_invokes_pipeline_without_modifying_public()
     test_retrain_args_parsing()
-    print("[OK] test_champion_challenger: 6/6 verdes")
+    print("[OK] test_champion_challenger: 12/12 verdes")

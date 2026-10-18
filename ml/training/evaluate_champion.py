@@ -11,7 +11,6 @@ Implementa:
 
 import os
 import sys
-import json
 import shutil
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple, Optional
@@ -26,7 +25,6 @@ from ml.training.build_real_dataset import (
     TARGETS,
     LAG1_TARGETS,
     row_to_features,
-    _series,
 )
 from ml.training.registry import update_registry_paired
 
@@ -38,14 +36,16 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
     """Calcula MAE, RMSE e R2 pareados."""
     yt = np.array(y_true, dtype=np.float64)
     yp = np.array(y_pred, dtype=np.float64)
-    mae = float(np.mean(np.abs(yt - yp)))
-    rmse = float(np.sqrt(np.mean((yt - yp) ** 2)))
+    mae_raw = float(np.mean(np.abs(yt - yp)))
+    rmse_raw = float(np.sqrt(np.mean((yt - yp) ** 2)))
     denom = float(np.sum((yt - np.mean(yt)) ** 2))
-    r2 = float(1.0 - np.sum((yt - yp) ** 2) / denom) if denom > 0 else 0.0
+    r2_raw = float(1.0 - np.sum((yt - yp) ** 2) / denom) if denom > 0 else 0.0
     return {
-        "mae": round(mae, 2),
-        "rmse": round(rmse, 2),
-        "r2": round(r2, 4),
+        "mae": round(mae_raw, 2),
+        "rmse": round(rmse_raw, 2),
+        "r2": round(r2_raw, 4),
+        "rmse_raw": rmse_raw,
+        "mae_raw": mae_raw,
     }
 
 
@@ -122,30 +122,60 @@ def extract_holdout_from_raw(
 
         for gi in h_idx:
             ts = times[gi]
-            aq_now = {t: float(aq[AQ_KEYS[t]][gi]) for t in TARGETS}
-            lags = {
-                "pm25": float(aq["pm2_5"][gi - 24]),
-                "pm10": float(aq["pm10"][gi - 24]),
-                "no2": float(aq["nitrogen_dioxide"][gi - 24]),
-                "o3": float(aq["ozone"][gi - 24]),
-                "pblh6": float(sum(met["boundary_layer_height"][gi - 6 : gi]) / 6.0),
-            }
-            lags1 = None
-            if order == "v2":
-                lags1 = {t: float(aq[AQ_KEYS[t]][gi - 1]) for t in LAG1_TARGETS}
+            # Skip defensivo consistente com build_real_dataset.py
+            try:
+                aq_now = {t: aq[AQ_KEYS[t]][gi] for t in TARGETS}
+                if any(v is None for v in aq_now.values()):
+                    raise ValueError(f"Alvo None em {st_id} às {ts}")
 
-            feats = row_to_features(
-                _meteo_row(met, gi),
-                aq_now,
-                ts,
-                lags,
-                flags,
-                order=order,
-                lags1=lags1,
-            )
-            all_features.append(feats)
-            for t in TARGETS:
-                all_targets[t].append(aq_now[t])
+                m_now = _meteo_row(met, gi)
+                if any(v is None for v in m_now.values()):
+                    raise ValueError(f"Meteo None em {st_id} às {ts}")
+
+                pblh_slice = met["boundary_layer_height"][gi - 6 : gi]
+                if any(v is None for v in pblh_slice):
+                    raise ValueError(f"PBLH None em {st_id} às {ts}")
+
+                lags = {
+                    "pm25": aq["pm2_5"][gi - 24],
+                    "pm10": aq["pm10"][gi - 24],
+                    "no2": aq["nitrogen_dioxide"][gi - 24],
+                    "o3": aq["ozone"][gi - 24],
+                    "pblh6": sum(pblh_slice) / 6.0,
+                }
+                if any(v is None for v in lags.values()):
+                    raise ValueError(f"Lag None em {st_id} às {ts}")
+
+                lags1 = None
+                if order == "v2":
+                    lags1 = {t: aq[AQ_KEYS[t]][gi - 1] for t in LAG1_TARGETS}
+                    if any(v is None for v in lags1.values()):
+                        raise ValueError(f"Lag1 None em {st_id} às {ts}")
+
+                aq_now_float = {t: float(aq_now[t]) for t in TARGETS}
+                lags_float = {k: float(v) for k, v in lags.items()}
+                lags1_float = {k: float(v) for k, v in lags1.items()} if lags1 is not None else None
+
+                feats = row_to_features(
+                    m_now,
+                    aq_now_float,
+                    ts,
+                    lags_float,
+                    flags,
+                    order=order,
+                    lags1=lags1_float,
+                )
+                all_features.append(feats)
+                for t in TARGETS:
+                    all_targets[t].append(aq_now_float[t])
+            except (ValueError, TypeError, KeyError):
+                continue
+
+    if not all_features:
+        raise ValueError(
+            f"Nenhuma amostra válida no holdout de {holdout_hours}h "
+            f"(todas as horas continham valores nulos ou faltantes)."
+        )
 
     X_holdout = np.array(all_features, dtype=np.float32)
     y_holdout = {t: np.array(all_targets[t], dtype=np.float32) for t in TARGETS}
@@ -188,7 +218,7 @@ def compare_champion_challenger(
 ) -> Dict[str, Dict[str, Any]]:
     """
     Avalia Champion e Challenger na MESMA janela de holdout.
-    Decide promoção por poluente:
+    Decide promoção por poluente com RMSE em float CRU:
       promote(p) = (rmse_challenger <= rmse_champion * (1.0 - epsilon))
     """
     eval_targets = targets or TARGETS
@@ -212,18 +242,23 @@ def compare_champion_challenger(
         m_champ = compute_metrics(yt, y_champ)
         m_chall = compute_metrics(yt, y_chall)
 
-        # Critério de não-degradação com epsilon configurável
-        # Se epsilon = 0.0, rmse_challenger <= rmse_champion
-        threshold = m_champ["rmse"] * (1.0 - epsilon)
-        promote = bool(m_chall["rmse"] <= threshold)
+        # Critério de não-degradação com epsilon usando float CRU
+        threshold_raw = m_champ["rmse_raw"] * (1.0 - epsilon)
+        promote = bool(m_chall["rmse_raw"] <= threshold_raw)
+
+        # Formata métricas de exibição sem campos internos *_raw
+        disp_champ = {k: v for k, v in m_champ.items() if not k.endswith("_raw")}
+        disp_chall = {k: v for k, v in m_chall.items() if not k.endswith("_raw")}
 
         decisions[t] = {
             "promote": promote,
-            "champion": m_champ,
-            "challenger": m_chall,
-            "rmse_diff": round(m_chall["rmse"] - m_champ["rmse"], 4),
-            "mae_diff": round(m_chall["mae"] - m_champ["mae"], 4),
-            "threshold": round(threshold, 4),
+            "champion": disp_champ,
+            "challenger": disp_chall,
+            "rmse_diff": round(m_chall["rmse_raw"] - m_champ["rmse_raw"], 4),
+            "mae_diff": round(m_chall["mae_raw"] - m_champ["mae_raw"], 4),
+            "threshold": round(threshold_raw, 4),
+            "rmse_raw_champion": m_champ["rmse_raw"],
+            "rmse_raw_challenger": m_chall["rmse_raw"],
         }
 
     return decisions
@@ -244,6 +279,7 @@ def apply_promotion(
     - `apps/web/public/models/<t>.onnx` + `<t>.topology.json` SÓ são sobrescritos
       se o poluente foi promovido (decisions[t]['promote'] == True).
     - Poluente que piora permanece intacto como Champion.
+    - Valida que o artefato copiado existe antes de registrar a promoção.
     - Atualiza registry.json registrando version e promoted_at por alvo.
     """
     os.makedirs(public_models_dir, exist_ok=True)
@@ -252,17 +288,25 @@ def apply_promotion(
 
     for t, dec in decisions.items():
         if dec.get("promote"):
-            promoted_targets.append(t)
-            # Copia ONNX e Topology para public_models_dir
             src_onnx = os.path.join(challenger_dir, f"{t}.onnx")
             dst_onnx = os.path.join(public_models_dir, f"{t}.onnx")
-            if os.path.exists(src_onnx):
-                shutil.copy2(src_onnx, dst_onnx)
+            if not os.path.exists(src_onnx):
+                raise FileNotFoundError(
+                    f"Artefato ONNX do challenger ausente para alvo promovido '{t}': {src_onnx}"
+                )
+            shutil.copy2(src_onnx, dst_onnx)
+            assert os.path.exists(dst_onnx), f"Falha ao copiar ONNX para {dst_onnx}"
 
             src_topo = os.path.join(challenger_dir, f"{t}.topology.json")
             dst_topo = os.path.join(public_models_dir, f"{t}.topology.json")
-            if os.path.exists(src_topo):
-                shutil.copy2(src_topo, dst_topo)
+            if not os.path.exists(src_topo):
+                raise FileNotFoundError(
+                    f"Topology JSON do challenger ausente para alvo promovido '{t}': {src_topo}"
+                )
+            shutil.copy2(src_topo, dst_topo)
+            assert os.path.exists(dst_topo), f"Falha ao copiar Topology para {dst_topo}"
+
+            promoted_targets.append(t)
 
     # Se ao menos um alvo foi promovido, copia também calibration.json do challenger
     if promoted_targets:
