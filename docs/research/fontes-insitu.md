@@ -80,30 +80,63 @@ Desenvolvida pelo PRODEST em parceria com o IEMA-ES para alimentar o painel ofic
 Página oficial: `https://iema.es.gov.br/qualidadedoar/dadosdemonitoramento/automatica`
 
 - **Endpoints Exatos Testados (HTTP 200):**
-  - **2026 (01/01/2026 a 30/09/2026):** `https://iema.es.gov.br/media/CQAI/medicoes-rgv-01-01-2026-a-30-09-2026.xlsx?v=T13SDnMcPffyo62zX-v5J_Z5pOUejCvDSVCgK64WIjw` (6.373.268 bytes, 6.556 linhas)
-  - **2025.2 (01/07/2025 a 31/12/2025):** `https://iema.es.gov.br/media/CQAI/Medi%C3%A7%C3%B5es%20Grande%20Vit%C3%B3ria%20-%2001.07.2025%20a%2031.12.2025.xlsx` (3.629.179 bytes)
-  - **2025.1 (01/01/2025 a 30/06/2025):** `https://iema.es.gov.br/media/CQAI/Medi%C3%A7%C3%B5es%20RGV%20-%2001.01.2025%20a%2030.06.2025.xlsx`
-  - **2024 (01/01/2024 a 31/12/2024):** `https://iema.es.gov.br/media/Qualidade%20do%20ar/Dados%20RGV%2001.01.2024%20-%2031.12.2024.xlsx` (9.933.977 bytes)
+  - **2026 (01/01/2026 a 30/09/2026):** `https://iema.es.gov.br/media/CQAI/medicoes-rgv-01-01-2026-a-30-09-2026.xlsx?v=T13SDnMcPffyo62zX-v5J_Z5pOUejCvDSVCgK64WIjw` (`6.373.268` bytes, aba `'Sheet1'`, `6.556` linhas = `3` cabeçalhos + **`6.553` horas**)
+  - **2025.2 (01/07/2025 a 31/12/2025):** `https://iema.es.gov.br/media/CQAI/Medi%C3%A7%C3%B5es%20Grande%20Vit%C3%B3ria%20-%2001.07.2025%20a%2031.12.2025.xlsx` (`3.629.179` bytes, aba `'Sheet1'`, `4.419` linhas = `3` cabeçalhos + **`4.416` horas**)
+  - **2025.1 (01/01/2025 a 30/06/2025):** `https://iema.es.gov.br/media/CQAI/Medi%C3%A7%C3%B5es%20RGV%20-%2001.01.2025%20a%2030.06.2025.xlsx` (`5.169.653` bytes, aba `'Medições'`, `4.352` linhas = `8` cabeçalhos + **`4.344` horas**)
+  - **2024 (01/01/2024 a 31/12/2024):** `https://iema.es.gov.br/media/Qualidade%20do%20ar/Dados%20RGV%2001.01.2024%20-%2031.12.2024.xlsx` (`9.933.977` bytes, aba `'Sheet'`, `8.782` linhas = `8` cabeçalhos + **`8.774` horas**)
   - **2023 a 2001:** Links diretos `.xlsx` (2020–2023) e `.xls` (2001–2017) listados na mesma página.
-- **Amostra Real Salva:** [`docs/research/amostras/iema_ramqar_2026_horaria_sample.csv`](./amostras/iema_ramqar_2026_horaria_sample.csv) (extraída das últimas horas de `2026-09-30` para todas as 8 estações da RGV).
-- **Estrutura e Completude Medida em 2026 (`6.553` horas entre Jan–Set/2026):**
+- **Amostras Reais Salvas:**
+  - [`docs/research/amostras/iema_ramqar_2026_horaria_sample.csv`](./amostras/iema_ramqar_2026_horaria_sample.csv) (últimas horas de `2026-09-30` para as 8 estações RGV)
+  - [`docs/research/amostras/iema_ramqar_2024_2025_sample.csv`](./amostras/iema_ramqar_2024_2025_sample.csv) (3 horas de amostra para `2024`, `2025.1` e `2025.2` nas estações de referência `RGV1` e `RGV4`)
 
-| Estação na Planilha IEMA | `TempAr` / `RH` / `Vento` | `PM25 (µg/m³)` | `PM10 (µg/m³)` | `O3 (µg/m³)` | `NO2 (µg/m³)` | `SO2 (µg/m³)` | `CO (µg/m³)` |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| **EMQAr - RGV1 - Laranjeiras** | 97,4% | **88,8%** | 11,1% | **97,3%** | **69,0%** | **97,4%** | **97,4%** |
-| **EMQAr - RGV2 - Carapina** | 98,0% (+ Rad/Press) | **58,1%** | **60,5%** | N/M | N/M | N/M | N/M |
-| **EMQAr - RGV3 - Jardim Camburi** | 87,4% | **90,4%** | **88,5%** | N/M | 39,2% | **69,9%** | N/M |
-| **EMQAr - RGV4 - Enseada do Sua** | 97,4% (+ Rad/Press) | **99,3%** | **97,1%** | **97,9%** | **97,3%** | **98,1%** | **92,1%** |
-| **EMQAr - RGV5 - Vitória-Centro** | 89,1% (s/ vento) | **88,7%** | **88,5%** | N/M | **59,7%** | **88,0%** | 3,0% |
-| **EMQAr - RGV6 - Vila Velha-IBES** | 99,6% | **98,4%** | **91,8%** | **95,1%** | 9,4% | **99,6%** | **92,7%** |
-| **EMQAr - RGV8 - Vila Capixaba** | 95,0% | 0,0% (flag `!`) | 34,3% | **93,0%** | **94,2%** | **89,5%** | **94,1%** |
-| **EMQAr - RGV9 - Cidade Continental** | N/M | **81,6%** | **79,9%** | N/M | **87,3%** | **86,8%** | N/M |
+#### 3.2.1. Mudança Crítica de Layout entre `2024`/`2025.1` e `2025.2`/`2026` (Especificação para `fetch_iema_insitu.py`)
 
-*(N/M = Poluente não monitorado pelo equipamento daquela estação).*
+> [!WARNING]
+> **O IEMA-ES trocou o software exportador das planilhas em 01/07/2025.** O script `fetch_iema_insitu.py` **PRECISA** detectar o formato pela célula `A1` (ou pelo número de linhas de cabeçalho) antes de iterar as linhas, pois `2024` e `2025.1` usam o **Formato Legado (8 linhas de cabeçalho + serial float do Excel + `sharedStrings.xml`)**, enquanto `2025.2` e `2026` usam o **Formato Novo (3 linhas de cabeçalho + string ISO + inline strings)**.
 
-- **Flags de Qualidade (Colunas `Status <Parâmetro>`):**
-  - **Válidos:** célula vazia `""`, `"VU"` (Válido pelo Usuário), `"VI"` (Válido pela Inspeção).
-  - **Inválidos (devem ser descartados no `build_real_dataset.py`):** `"IU"` (Inválido pelo Usuário, ex.: valores negativos de deriva zero como `-86.2` ou sentinela `-9999`), `"IT"` (Interrupção/Telemetria, com valor `0`), `"ID"` (Indisponível), `"!"` ( Equipamento desabilitado).
+| Aspecto Estrutural | **Formato Legado (`2024` e `2025.1` — até 30/06/2025)** | **Formato Novo (`2025.2` e `2026` — a partir de 01/07/2025)** |
+|---|---|---|
+| **Armazenamento XML (`.xlsx`)** | Usa tabela `xl/sharedStrings.xml` (`c[@t="s"]` contém índice inteiro na tabela de strings). Aba chama-se `'Sheet'` (`2024`) ou `'Medições'` (`2025.1`). | **Sem `sharedStrings.xml`**: todas as strings vêm inline (`c[@t="str"]/v`). Aba chama-se `'Sheet1'`. |
+| **Linhas de Cabeçalho** | **8 linhas** (`r="1"` a `r="8"`). Os dados horários começam na **linha 9 (`r="9"`)**. | **3 linhas** (`r="1"` a `r="3"`). Os dados horários começam na **linha 4 (`r="4"`)**. |
+| **Total de Colunas** | `281` colunas em `2024`; `291` colunas em `2025.1` (pois `2025.1` adiciona par extra `Valor [ppm]` + `Flag` para CO em 5 estações). | `191` colunas tanto em `2025.2` quanto em `2026`. |
+| **Estações Presentes (Linha 2)** | **10 estações** (com parênteses): `EMQAr - RGV1 (Laranjeiras)`, `EMQAr - RGV10 (Ponta Formosa)`, `EMQAr - RGV2 (Carapina)`, `EMQAr - RGV3 (Jardim Camburi)`, `EMQAr - RGV4 (Enseada do Suá)`, `EMQAr - RGV5 (Vitória-Centro)`, `EMQAr - RGV6 (Vila Velha-IBES)`, `EMQAr - RGV7 (Vila Velha-Centro)`, `EMQAr - RGV8 (Vila Capixaba)`, `EMQAr - RGV9 (Cidade Continental)`. *(Nota: `RGV7` tem 0% de dados válidos; `RGV10` foi desativada em mar/2025).* | **8 estações** (com hífen, sem `RGV7` e sem `RGV10`): `EMQAr - RGV1 - Laranjeiras`, `EMQAr - RGV2 - Carapina`, `EMQAr - RGV3 - Jardim Camburi`, `EMQAr - RGV4 - Enseada do Sua`, `EMQAr - RGV5 - Vitória-Centro`, `EMQAr - RGV6 - Vila Velha-IBES`, `EMQAr - RGV8 - Vila Capixaba`, `EMQAr - RGV9 - Cidade Continental`. |
+| **Identificação do Parâmetro e Unidade** | **Linha 5** traz o nome por extenso (`Ozônio`, `Dióxido de Nitrogênio`, `Monóxido de Nitrogênio`, `Óxidos de Nitrogênio`, `Dióxido de Enxofre`, `Monóxido de Carbono`, `Partículas Inaláveis (<10µm)`, `Partículas Respiráveis (<2,5µm)`, `Velocidade Escalar do Vento`, `Direção Escalar do Vento`, `Umidade Relativa`, `Temperatura`, `Precipitação Pluviométrica`, `Pressão Atmosférica`, `Radiação Solar Global`) e **Linha 8** alterna `Valor [µg/m³]` (ou `[ppm]`, `[°C]`, `[m/s]`, `[°]`, `[%]`, `[mm]`) nas colunas ímpares com `Flag` nas colunas pares. | **Linha 3** traz sigla + unidade nas colunas ímpares (`TempAr (C°)`, `VelVento (m/s)`, `DirVento (Y/N)` ou `DirVento (°)`, `RH (%)`, `Rain (mm)`, `Radiação (watt/m2)`, `Press_Ar (mbar)`, `SO2 (ug/m3)`, `O3 (ug/m3)`, `NO (ug/m3)`, `NO2 (ug/m3)`, `NOX (ug/m3)`, `CO_ppm (ppm)` em `2025.2` / `CO (ug/m3)` em `2026`, `PM10 (ug/m3)`, `PM25 (ug/m3)`) e `Status <Parâmetro>` nas colunas pares. |
+| **Unidade de `CO`** | Em `2024`: `Valor [µg/m³]`. Em `2025.1`: traz **ambas** as colunas (`Valor [µg/m³]` e, logo ao lado, `Valor [ppm]` com flag `VC`). | Em `2025.2`: apenas **`CO_ppm (ppm)`** (converter p/ $\mu\text{g/m}^3$ via $\text{CO}_{\mu\text{g/m}^3} = \text{CO}_{\text{ppm}} \times 1145$). Em `2026`: já vem convertido em **`CO (ug/m3)`**. |
+| **Formato de `Data/Hora` (Coluna 0)** | **Float serial do Excel** (época `1899-12-30`), gravado em **meia hora (`:30`)**: ex. `45292.4375` $\rightarrow$ `2024-01-01 10:30:00` (truncar/alinhar para `:00` no join horário). | **String ISO local (BRT)** em hora cheia (`:00`): ex. `"2025-07-01 00:00:00"`. |
+| **Flags `Status` / `Flag` Válidas** | `""` (vazio), `" "` (espaço simples — padrão nas células normais de 2024/2025.1!), `"VU"` (Válido Usuário), `"VR"` (Válido Reescalonado), `"VC"` (Válido Calculado). | `""` (vazio), `"VU"` (Válido Usuário), `"VI"` (Válido Inspeção). |
+| **Flags Inválidas e Sentinelas** | Flags: `"IF"`, `"ID"`, `"IP"`, `"IC"`, `"IE"`, `"IR"`, `"IT"`, `"IU"`. Sentinela numérica de erro: **`99999`**. | Flags: `"!"`, `"-"`, `"I%"`, `"IC"`, `"ID"`, `"IF"`, `"II"`, `"IP"`, `"IS"`, `"IT"`, `"IU"`. Sentinela numérica de erro: **`-9999`**. |
+
+#### 3.2.2. Contagem de Horas Válidas e Meteorologia In-Situ por Ano (`2024`, `2025.1`, `2025.2` e `2026`)
+
+Todas as 4 planilhas possuem **meteorologia in-situ medida nas torres das próprias estações** (`TempAr`, `RH`, `VelVento`, `DirVento` em `RGV1, RGV2, RGV3, RGV4, RGV6, RGV8`; `TempAr` e `RH` em `RGV5`; `Press_Ar` e `Radiação` adicionais em `RGV2` e `RGV4`; apenas `RGV9` não possui sensores meteorológicos):
+
+| Estação IEMA | Período / Total Horas | `TempAr` / `RH` / `Vento` válidos | `PM25` válido (horas / %) | `PM10` válido (horas / %) | `O3` válido (horas / %) | `NO2` válido (horas / %) | `SO2` válido (horas / %) | `CO` válido (horas / %) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| **RGV1 (Laranjeiras)** | `2024` (`8.774` h)<br>`2025.1` (`4.344` h)<br>`2025.2` (`4.416` h)<br>`2026` (`6.553` h) | 8.538 (97,3%)<br>4.341 (99,9%)<br>4.385 (99,3%)<br>6.382 (97,4%) | **8.752 (99,7%)**<br>**3.587 (82,6%)**<br>1.128 (25,5%)<br>**5.817 (88,8%)** | 914 (10,4%)<br>0 (0,0%)<br>925 (20,9%)<br>725 (11,1%) | **7.910 (90,2%)**<br>**4.329 (99,7%)**<br>**3.789 (85,8%)**<br>**6.374 (97,3%)** | **8.420 (96,0%)**<br>**4.330 (99,7%)**<br>**3.869 (87,6%)**<br>**4.523 (69,0%)** | **8.234 (93,8%)**<br>**4.333 (99,7%)**<br>**3.225 (73,0%)**<br>**6.384 (97,4%)** | **7.968 (90,8%)**<br>**4.316 (99,4%)**<br>2.058 (46,6%)<br>**6.380 (97,4%)** |
+| **RGV2 (Carapina)** | `2024` (`8.774` h)<br>`2025.1` (`4.344` h)<br>`2025.2` (`4.416` h)<br>`2026` (`6.553` h) | 8.584 (97,8%)<br>3.823 (88,0%)<br>2.224 (50,4%)<br>6.423 (98,0%) | **8.732 (99,5%)**<br>**4.227 (97,3%)**<br>**3.365 (76,2%)**<br>**3.805 (58,1%)** | **8.132 (92,7%)**<br>**2.365 (54,4%)**<br>**3.198 (72,4%)**<br>**3.963 (60,5%)** | N/M | N/M | N/M | N/M |
+| **RGV3 (Jardim Camburi)** | `2024` (`8.774` h)<br>`2025.1` (`4.344` h)<br>`2025.2` (`4.416` h)<br>`2026` (`6.553` h) | 8.621 (98,3%)<br>4.244 (97,7%)<br>3.569 (80,8%)<br>5.730 (87,4%) | 339 (3,9%)<br>0 (0,0%)<br>849 (19,2%)<br>**5.927 (90,4%)** | **8.728 (99,5%)**<br>**4.263 (98,1%)**<br>**3.891 (88,1%)**<br>**5.798 (88,5%)** | N/M | **8.050 (91,7%)**<br>**3.680 (84,7%)**<br>2.106 (47,7%)<br>2.567 (39,2%) | **7.429 (84,7%)**<br>**4.138 (95,3%)**<br>**3.962 (89,7%)**<br>**4.581 (69,9%)** | N/M |
+| **RGV4 (Enseada do Suá)** | `2024` (`8.774` h)<br>`2025.1` (`4.344` h)<br>`2025.2` (`4.416` h)<br>`2026` (`6.553` h) | 8.623 (98,3%)<br>4.338 (99,9%)<br>3.529 (79,9%)<br>6.385 (97,4%) | **8.640 (98,5%)**<br>**4.336 (99,8%)**<br>**3.534 (80,0%)**<br>**6.504 (99,3%)** | **8.211 (93,6%)**<br>**4.301 (99,0%)**<br>**3.529 (79,9%)**<br>**6.365 (97,1%)** | **7.828 (89,2%)**<br>**4.326 (99,6%)**<br>**3.539 (80,1%)**<br>**6.416 (97,9%)** | **8.451 (96,3%)**<br>**4.290 (98,8%)**<br>**3.402 (77,0%)**<br>**6.378 (97,3%)** | **8.702 (99,2%)**<br>**4.170 (96,0%)**<br>**3.528 (79,9%)**<br>**6.430 (98,1%)** | **8.069 (92,0%)**<br>**4.235 (97,5%)**<br>**3.546 (80,3%)**<br>**6.034 (92,1%)** |
+| **RGV5 (Vitória-Centro)** | `2024` (`8.774` h)<br>`2025.1` (`4.344` h)<br>`2025.2` (`4.416` h)<br>`2026` (`6.553` h) | 8.493 (96,8%)<br>4.300 (99,0%)<br>4.054 (91,8%)<br>5.840 (89,1%) | **8.068 (92,0%)**<br>**3.000 (69,1%)**<br>647 (14,7%)<br>**5.812 (88,7%)** | **8.040 (91,6%)**<br>214 (4,9%)<br>605 (13,7%)<br>**5.798 (88,5%)** | N/M | **8.661 (98,7%)**<br>**3.902 (89,8%)**<br>**3.391 (76,8%)**<br>**3.912 (59,7%)** | **8.602 (98,0%)**<br>**4.331 (99,7%)**<br>**3.963 (89,7%)**<br>**5.769 (88,0%)** | **8.460 (96,4%)**<br>**4.225 (97,3%)**<br>**3.411 (77,2%)**<br>197 (3,0%) |
+| **RGV6 (Vila Velha-IBES)** | `2024` (`8.774` h)<br>`2025.1` (`4.344` h)<br>`2025.2` (`4.416` h)<br>`2026` (`6.553` h) | 8.638 (98,4%)<br>4.275 (98,4%)<br>3.965 (89,8%)<br>6.526 (99,6%) | 2.719 (31,0%)<br>0 (0,0%)<br>1.278 (28,9%)<br>**6.450 (98,4%)** | 0 (0,0%)<br>0 (0,0%)<br>1.412 (32,0%)<br>**6.013 (91,8%)** | **7.880 (89,8%)**<br>**4.318 (99,4%)**<br>**3.432 (77,7%)**<br>**6.235 (95,1%)** | **8.582 (97,8%)**<br>**4.004 (92,2%)**<br>**3.997 (90,5%)**<br>618 (9,4%) | **8.738 (99,6%)**<br>**4.314 (99,3%)**<br>**3.936 (89,1%)**<br>**6.526 (99,6%)** | **7.922 (90,3%)**<br>**4.129 (95,1%)**<br>**3.609 (81,7%)**<br>**6.077 (92,7%)** |
+| **RGV8 (Vila Capixaba)** | `2024` (`8.774` h)<br>`2025.1` (`4.344` h)<br>`2025.2` (`4.416` h)<br>`2026` (`6.553` h) | 8.660 (98,7%)<br>4.164 (95,9%)<br>4.031 (91,3%)<br>6.224 (95,0%) | **6.282 (71,6%)**<br>0 (0,0%)<br>0 (0,0%)<br>0 (0,0%) | **6.709 (76,5%)**<br>0 (0,0%)<br>993 (22,5%)<br>2.246 (34,3%) | **8.409 (95,8%)**<br>**4.321 (99,5%)**<br>**3.945 (89,3%)**<br>**6.091 (93,0%)** | **8.292 (94,5%)**<br>**4.194 (96,5%)**<br>**4.023 (91,1%)**<br>**6.171 (94,2%)** | **8.637 (98,4%)**<br>**4.234 (97,5%)**<br>**4.018 (91,0%)**<br>**5.862 (89,5%)** | **7.881 (89,8%)**<br>**4.310 (99,2%)**<br>**3.936 (89,1%)**<br>**6.165 (94,1%)** |
+| **RGV9 (Cidade Continental)** | `2024` (`8.774` h)<br>`2025.1` (`4.344` h)<br>`2025.2` (`4.416` h)<br>`2026` (`6.553` h) | N/M | **7.941 (90,5%)**<br>**4.298 (98,9%)**<br>**3.273 (74,1%)**<br>**5.345 (81,6%)** | **8.348 (95,1%)**<br>**4.292 (98,8%)**<br>**3.274 (74,1%)**<br>**5.239 (79,9%)** | N/M | 1.155 (13,2%)<br>0 (0,0%)<br>N/M<br>**5.719 (87,3%)** | 0 (0,0%)<br>0 (0,0%)<br>N/M<br>**5.689 (86,8%)** | N/M |
+
+#### 3.2.3. Amostra Real de 3 Linhas por Período (`2024`, `2025.1`, `2025.2`) — `RGV4 (Enseada do Suá)` e `RGV1 (Laranjeiras)`
+
+Extraída de [`docs/research/amostras/iema_ramqar_2024_2025_sample.csv`](./amostras/iema_ramqar_2024_2025_sample.csv):
+
+```csv
+arquivo,formato,timestamp_bruto_col0,timestamp_iso_brt,estacao,PM25_ugm3,Flag_PM25,PM10_ugm3,Flag_PM10,O3_ugm3,Flag_O3,NO2_ugm3,Flag_NO2,SO2_ugm3,Flag_SO2,CO_ugm3,CO_ppm,TempAr_C,RH_pct,VelVento_ms,DirVento_deg
+2024,Legado_8_cabecalhos,45292.8125,2024-01-01 19:30:00,EMQAr - RGV4 (Enseada do Suá),5.2,,5.2,VR,24.44,,35.88,,3.46,VU,141.69,,24,98.2,1.6,207.8
+2024,Legado_8_cabecalhos,45292.85416666667,2024-01-01 20:30:00,EMQAr - RGV4 (Enseada do Suá),4.2,,4.4,,23.4,,36.37,,2.98,VU,143.49,,23.9,98.8,1.3,188.4
+2024,Legado_8_cabecalhos,45292.89583333333,2024-01-01 21:30:00,EMQAr - RGV4 (Enseada do Suá),3.4,,5.9,,24.6,,25.28,,2.77,VU,129.68,,24,98.3,1.4,194.4
+2025_1,Legado_8_cabecalhos,45658.39583333333,2025-01-01 09:30:00,EMQAr - RGV4 (Enseada do Suá),7,,25.8,,34.07,,21.05,,7.56,,630.35,0.55,29.3,79.6,1.4,76.1
+2025_1,Legado_8_cabecalhos,45658.4375,2025-01-01 10:30:00,EMQAr - RGV4 (Enseada do Suá),9.2,,21.8,,45.43,,7.12,,4.42,,466.74,0.407,30.1,77.6,1.6,47.5
+2025_1,Legado_8_cabecalhos,45658.47916666667,2025-01-01 11:30:00,EMQAr - RGV4 (Enseada do Suá),10.7,,19.7,,44.87,,6.29,,4.12,,400.69,0.35,30,78.4,1.7,46.7
+2025_2,Novo_3_cabecalhos,2025-12-14 15:00:00,2025-12-14 15:00:00,EMQAr - RGV4 (Enseada do Suá),13.511,VI,44.3815,VI,16.94649,VU,8.520145,VU,6.372127,VU,,0.1116746,27.93431,,1.292736,47.53162
+2025_2,Novo_3_cabecalhos,2025-12-14 16:00:00,2025-12-14 16:00:00,EMQAr - RGV4 (Enseada do Suá),13.0453,VI,55.3918,VI,13.56382,VU,9.255548,VU,2.314729,VU,,0.0854937,27.16304,,1.228885,58.53357
+2025_2,Novo_3_cabecalhos,2025-12-14 17:00:00,2025-12-14 17:00:00,EMQAr - RGV4 (Enseada do Suá),34.6005,VI,70.6889,VI,15.47812,VU,8.35323,VU,1.389986,VU,,0.0720706,26.62705,,1.334698,57.84337
+```
 
 ---
 
@@ -180,28 +213,52 @@ Ao cruzar [`db/seed.sql`](../../db/seed.sql) com a tabela oficial do IEMA (`http
 | `ramqar_cariacica` | Cariacica Centro | `-20.2634, -40.4166` | **EMQAr - RGV8 — Vila Capixaba** (CEASA, Cariacica) · `IdEstacao=8` | `-20.34201, -40.40218` | 8,87 km | **Ativa (API + XLSX):** `O3, NO2, SO2, CO, PM10` (`PM25` desabilitado em 2026) + Meteo |
 | `ramqar_serra_jacupemba` *(divergente)* | Jacupemba - Serra *(nota: Jacupemba fica em Aracruz)* | `-20.1750, -40.1900` | **EMQAr - RGV9 — Cidade Continental** (Serra) · `IdEstacao=9` *(ou **EMQAr - RGV2 — Carapina**, Serra, `IdEstacao=2`)* | `RGV9`: `-20.22062, -40.22767`<br>`RGV2`: `-20.23220, -40.25489` | 6,41 km (`RGV9`) | **`RGV9` Ativa (API + XLSX):** `PM25, PM10, NO2, SO2`<br>**`RGV2` Ativa (XLSX):** `PM25, PM10` + Meteo completa |
 | `ramqar_paul` *(divergente)* | Paul - Vila Velha | `-20.3297, -40.2960` | **EMQAr - RGV7 — Vila Velha - Centro** (Colégio Marista, Vila Velha) *(desativada; histórico até 2020)* ou mapear `RGV2 Carapina` | `RGV7`: `-20.33709, -40.29022` | 1,02 km (`RGV7`) | `RGV7` desativada pelo IEMA; para operação contínua 2026 usar **EMQAr - RGV2 (Carapina)** ou interpolação IDW (`RGV4` + `RGV5` + `RGV6`) |
-| `ramqar_vila_velha_fundo` *(divergente)* | Vila Velha Interior | `-20.3700, -40.3300` | Sem estação física no sul de Vila Velha (ou substituir por `EMQAr - RGV2 Carapina` / `EMQAr - SUL1 Meaípe`) | `SUL1`: `-20.73700, -40.53500` | — | Para manter o contrato de 9 IDs `ramqar_*`, imputar via **IDW Haversine inverso (`1/d²`)** a partir de `RGV6 (IBES, a 2,7 km)` + `RGV8 (Cariacica)` + `RGV4 (Suá)` |
+| `ramqar_vila_velha_fundo` *(divergente)* | Vila Velha Interior | `-20.3700, -40.3300` | Sem estação física no sul de Vila Velha (ou substituir por `EMQAr - RGV2 Carapina`) | — | — | Para manter o contrato de 9 IDs `ramqar_*`, imputar via **IDW Haversine inverso (`1/d²`)** a partir de `RGV6 (IBES, a 2,7 km)` + `RGV8 (Cariacica)` + `RGV4 (Suá)` |
+
+### 4.1. Identificação dos `IdEstacao` 11 a 16 em `/api/mapa` (Rede RAMQAr-Sul) e Decisão sobre o Contrato de 9 Estações
+
+O endpoint `GET https://qualidadedoarapi.es.gov.br/api/mapa` retorna exatamente **14 entradas** porque omite as estações desativadas `IdEstacao = 7` (`EMQAr - RGV7 — Vila Velha-Centro`) e `IdEstacao = 10` (`EMQAr - RGV10 — Ponta Formosa`), listando **8 estações da RAMQAr-RGV (`IdEstacao` 1, 2, 3, 4, 5, 6, 8, 9)** e **6 estações da RAMQAr-Sul (`IdEstacao` 11, 12, 13, 14, 15, 16)**. Cruzando o payload salvo em [`docs/research/amostras/iema_api_mapa_live.json`](./amostras/iema_api_mapa_live.json) com a tabela oficial de metadados da Região Sul (`https://iema.es.gov.br/media/CQAI/Localiza%C3%A7%C3%A3o%20das%20Esta%C3%A7%C3%B5es%20da%20Regi%C3%A3o%20Sul.png`), temos:
+
+| `IdEstacao` (`/api/mapa`) | `Descricao` | `Localizacao` (Bairro / Endereço Oficial IEMA) | Município | Coordenadas Geográficas (`/api/mapa`) | Coordenadas UTM SIRGAS 2000 24K (`X`, `Y`) | Pertence à RMGV (LC Estadual 58/95)? | Distância até `RGV4` (Vitória) |
+|---:|---|---|---|---|---|---:|---:|
+| **`11`** | `EMQAr - SUL1` | Balneário de Meaípe (Estação de Tratamento de Água) | **Guarapari** | `-20.73700, -40.53500` | `340161 E, 7706211 N` | **Sim** *(extremo sul de Guarapari, divisa c/ Anchieta)* | 53,5 km |
+| **`12`** | `EMQAr - SUL2` | Ubu / Praia de Parati (Estação de Tratamento de Água) | **Anchieta** | `-20.80283, -40.59693` | `333798 E, 7698849 N` | **Não** *(Microrregião Litoral Sul)* | 62,9 km |
+| **`13`** | `EMQAr - SUL3` | Guanabara / Praia de Castelhanos (Estação de Tratamento de Água) | **Anchieta** | `-20.82134, -40.62636` | `330757 E, 7696769 N` | **Não** *(Microrregião Litoral Sul)* | 66,3 km |
+| **`14`** | `EMQAr - SUL4` | Comunidade de Belo Horizonte (Rua Projetada, s/nº, zona rural) | **Anchieta** | `-20.74185, -40.60891` | `332488 E, 7705591 N` | **Não** *(Microrregião Litoral Sul)* | 57,9 km |
+| **`15`** | `EMQAr - SUL5` | Mãe-Bá (Rua Eta, s/nº) | **Anchieta** | `-20.76741, -40.57441` | `336103 E, 7702794 N` | **Não** *(Microrregião Litoral Sul)* | 58,4 km |
+| **`16`** | `EMQAr - SUL6` | Anchieta Centro (Prefeitura de Anchieta) | **Anchieta** | `-20.81289, -40.63343` | `330000 E, 7697695 N` | **Não** *(Microrregião Litoral Sul)* | 65,9 km |
+
+**Decisão técnica e evidência (por que `IdEstacao` 11–16 ficam fora do contrato de 9 estações):**  
+Embora o município de Guarapari integre juridicamente a RMGV (Lei Complementar Estadual nº 58/1995), a estação `IdEstacao = 11` (`EMQAr - SUL1 — Meaípe`) e as estações `IdEstacao = 12..16` (`SUL2..SUL6`, todas no município de Anchieta, fora da RMGV) pertencem à **RAMQAr-Sul** — uma rede distinta, implantada pelo Termo de Compromisso Ambiental da Samarco Mineração S.A. para monitorar exclusivamente a bacia aérea do Complexo Industrial de Ponta Ubu (53 a 66 km ao sul de Vitória). As evidências técnicas nas fontes oficiais do IEMA confirmam essa separação: (1) nas planilhas históricas `Medições RGV` / `medicoes-rgv-2026.xlsx`, as estações `SUL1..SUL6` **não estão incluídas** (são publicadas em pacote separado sob o título *"Rede Automática de Monitoramento da Qualidade do Ar - Região Sul"* em `iema.es.gov.br/qualidadedoar/dadosdemonitoramento/automatica`); (2) na API `/api/mapa`, `SUL1..SUL6` reportam timestamps defasados em meia hora (`:30`) e sem `MP₂,₅` em `SUL1, SUL2, SUL5, SUL6`; e (3) a distância de `SUL1 (Meaípe)` até a estação mais meridional do `db/seed.sql` (`ramqar_vila_velha_fundo`) é de **46,0 km**, representando outro regime meteorológico e de emissões. Portanto, **nenhum dos IDs 11–16 deve entrar no contrato de 9 estações `ramqar_*`**, devendo o worker filtrar apenas `IdEstacao IN (1, 2, 3, 4, 5, 6, 8, 9)` (`Descricao LIKE 'EMQAr - RGV%'`).
 
 > [!IMPORTANT]
-> **Decisão recomendada para o contrato de estações:**
+> **Decisão recomendada para o contrato de 9 estações (`db/seed.sql`):**
 > Como as convenções do AetherML (`AGENTS.md` / `.agents/rules/aetherml-conventions.md`) fixam os 9 IDs `ramqar_*` de `db/seed.sql`, recomendamos:
-> 1. Atualizar as coordenadas (`latitude`, `longitude`) das 6 estações diretas + associar `ramqar_serra_jacupemba` → `EMQAr - RGV9 (Cidade Continental, Serra)` e `ramqar_paul` → `EMQAr - RGV2 (Carapina, Serra)` (ou manter `ramqar_paul` e `ramqar_vila_velha_fundo` alimentadas por interpolação espacial IDW ponderada por Haversine $1/d^2$ das estações físicas vizinhas `RGV6 IBES`, `RGV4 Suá` e `RGV5 Centro`, declarando `source = 'IEMA_IDW'`).
-> 2. Assim, **8 estações físicas reais da RGV (`RGV1, RGV2, RGV3, RGV4, RGV5, RGV6, RGV8, RGV9`) entram diretamente no pipeline**.
+> 1. Atualizar as coordenadas (`latitude`, `longitude`) das 6 estações diretas + associar `ramqar_serra_jacupemba` → `EMQAr - RGV9 (Cidade Continental, Serra)` e `ramqar_paul` → `EMQAr - RGV2 (Carapina, Serra)` (ou manter `ramqar_paul` e `ramqar_vila_velha_fundo` alimentadas por interpolação espacial IDW ponderada por Haversine $1/d^2$ das estações físicas vizinhas `RGV6 IBES`, `RGV4 Suá` e `RGV5 Centro`).
+> 2. Assim, **todas as 8 estações físicas ativas da RGV (`RGV1, RGV2, RGV3, RGV4, RGV5, RGV6, RGV8, RGV9`) entram diretamente no pipeline**.
 
 ---
 
 ## 5. Plano de Integração para o MOS (`specs/08 §2` — $X = \text{CAMS}$, $Y = \text{in-situ}$)
 
-### 5.1. Arquitetura de Dados (Treino Offline vs. Ingestão Edge)
+### 5.1. Arquitetura de Dados e Contrato com Tabelas D1 (`db/schema.ts` & `workers/ingestion`)
+
+Conforme verificado em [`db/schema.ts`](../../db/schema.ts#L22-L70) e [`workers/ingestion/src/index.ts`](../../workers/ingestion/src/index.ts#L61-L72), o banco D1 possui duas tabelas de séries observadas/covariáveis ao lado de `monitoring_stations`:
+- **`observed_pollutants`** (`UNIQUE(station_id, timestamp)`): armazena `pm25, pm10, so2, no2, o3, co, iqar_index, iqar_classification, primary_pollutant, source`. A coluna `source` é anulável e sem default (Migration `0002_observed_source.sql`), e **a constante `export const IEMA_SENTINEL = "IEMA"` já está declarada e reservada em [`workers/ingestion/src/index.ts`](../../workers/ingestion/src/index.ts#L64)** especificamente para observações oficiais *in-situ* do IEMA (enquanto o fallback Open-Meteo grava `CAMPS_ANALYSIS_SOURCE = "open-meteo-cams-reanalysis"` ou `CAMPS_FORECAST_SOURCE = "open-meteo-cams-forecast"`).
+- **`environmental_features`** (`UNIQUE(station_id, timestamp, is_forecast)`): armazena `temperature, relative_humidity, wind_speed, wind_direction, wind_u, wind_v, boundary_layer_height, surface_pressure, solar_radiation, satellite_*, traffic_*, is_forecast, source` (onde o worker hoje grava `FEATURES_SOURCE = "open-meteo-forecast-api"`).
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ 1. PIPELINE DE TREINO & BACKTEST MOS (ml/training/ + ml/evaluation/)        │
 │                                                                              │
-│  [IEMA XLSX 2024..2026] ──► parse_iema_insitu.py                             │
-│   (Concentrações µg/m³ +      - Filtra Status in ("", "VU", "VI")            │
-│    Meteo in-situ por RGV)     - Descarta "-9999", "IU", "IT", "ID", "!"      │
-│                               - Converte timestamp BRT (UTC-3)               │
+│  [IEMA XLSX 2024..2026] ──► fetch_iema_insitu.py                            │
+│   (Concentrações µg/m³ +      - Suporta Formato Legado (2024/2025.1, 8 cab.) │
+│    Meteo in-situ por RGV)       e Formato Novo (2025.2/2026, 3 cab.)         │
+│                               - Filtra Status in ("", " ", "VU", "VI",       │
+│                                 "VR", "VC") e descarta sentinelas            │
+│                                 (-9999, 99999, "!", "-", "IF", "ID", "IU")   │
+│                               - Converte CO_ppm (2025.2) * 1145 -> µg/m³     │
+│                               - Converte timestamp BRT (UTC-3) -> UTC        │
 │                               - Imputa lacunas de poluente por estação (IDW) │
 │                                        │                                     │
 │  [Open-Meteo CAMS + Meteo] ────────────┼──► build_real_dataset.py (modo MOS) │
@@ -218,10 +275,13 @@ Ao cruzar [`db/seed.sql`](../../db/seed.sql) com a tabela oficial do IEMA (`http
 │ 2. INGESTÃO OPERACIONAL EM TEMPO REAL (workers/ingestion — Cron :30)        │
 │                                                                              │
 │  GET https://qualidadedoarapi.es.gov.br/api/mapa                             │
-│  GET https://qualidadedoarapi.es.gov.br/api/mapa/{IdEstacao} (1,3,4,5,6,8,9) │
+│  GET https://qualidadedoarapi.es.gov.br/api/mapa/{IdEstacao} (1..6, 8, 9)    │
 │   │                                                                          │
-│   ├──► Grava em `observed_measurements` (D1) com `source = 'IEMA'`           │
+│   ├──► Grava em `observed_pollutants` (D1) usando `IEMA_SENTINEL = 'IEMA'`   │
+│   │    via `buildObservedUpsert()` (ON CONFLICT(station_id, timestamp))      │
 │   │    (diferenciando estações no mapa e nos gráficos históricos de 48h!)    │
+│   ├──► Mantém `environmental_features` alimentada por `buildFeaturesUpsert()`│
+│   │    (PBLH, pressão, radiação e vento NWP do Open-Meteo em UTC)            │
 │   └──► Alimenta `pm25_lag1..so2_lag1` e `lag24` reais por estação no         │
 │        vetor de features (`FEATURE_ORDER_V2`) antes da inferência ONNX!      │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -230,16 +290,20 @@ Ao cruzar [`db/seed.sql`](../../db/seed.sql) com a tabela oficial do IEMA (`http
 ### 5.2. Passos Executáveis para Implementação (Frente de Engenharia / ML)
 
 1. **Novo script `ml/training/fetch_iema_insitu.py`:**
-   - Baixa `medicoes-rgv-01-01-2026-a-30-09-2026.xlsx` e `Medições Grande Vitória - 01.07.2025 a 31.12.2025.xlsx` diretamente de `https://iema.es.gov.br/media/CQAI/...` (usando `zipfile` + `xml.etree.ElementTree.iterparse` da biblioteca padrão Python — zero dependências pesadas, parseia 6.553 horas em ~2 segundos).
-   - Aplica filtro estrito de qualidade: mantém apenas valores numéricos $\ge 0$ cuja coluna `Status` adjacente seja `""`, `"VU"` ou `"VI"`.
+   - Baixa as planilhas de `2024`, `2025.1`, `2025.2` e `2026` diretamente de `https://iema.es.gov.br/media/...` usando `zipfile` + `xml.etree.ElementTree.iterparse` da stdlib Python.
+   - Detecta automaticamente os dois layouts documentados na Seção 3.2.1:
+     - **Formato Legado (`2024` e `2025.1`):** carrega `xl/sharedStrings.xml`, lê 8 linhas de cabeçalho (estação na linha 2, parâmetro por extenso na linha 5, unidade na linha 8), converte o float serial do Excel da coluna 0 (`1899-12-30`) de BRT para UTC e trunca `:30` para `:00`.
+     - **Formato Novo (`2025.2` e `2026`):** lê strings inline nas 3 linhas de cabeçalho (estação na linha 2, parâmetro curto na linha 3), converte `CO_ppm (ppm)` de `2025.2` para $\mu\text{g/m}^3$ ($\times 1145$) e converte o timestamp ISO local da coluna 0 de BRT (`UTC-3`) para UTC.
+   - Aplica filtro estrito de qualidade: mantém apenas valores numéricos finitos ($0 \le v < 90000$) cuja coluna `Flag`/`Status` adjacente pertença a `{"", " ", "VU", "VI", "VR", "VC"}`.
    - Para poluentes não medidos em determinada estação (ex.: `O3` em `RGV3 Camburi` e `RGV5 Centro`; `PM25` em `RGV8 Cariacica`), aplica interpolação espacial ponderada pelo inverso do quadrado da distância Haversine ($w_i = 1/d_i^2$) usando as estações físicas ativas da RGV na mesma hora, marcando flag de proveniência `in_situ_interpolated`.
    - Salva `ml/data/iema_insitu_raw.json` no mesmo contrato de `openmeteo_raw.json`.
 2. **Join MOS em `ml/training/build_real_dataset.py`:**
    - Combina `openmeteo_raw.json` (que fornece `boundary_layer_height` / `pblh_rolling6` e `surface_pressure`/`shortwave_radiation` onde ausentes) com `iema_insitu_raw.json` (que fornece o alvo $Y$ real *in-situ* e os lags `lag24` e `lag1` específicos de cada estação).
-   - Preserva intacto o contrato `FEATURE_ORDER_V2` (30 features) e os 5 alvos (`pm25`, `pm10`, `o3`, `no2`, `so2`).
-3. **Ingestão em Tempo Real em `workers/ingestion/src/index.ts`:**
-   - No cron `:30`, consulta `https://qualidadedoarapi.es.gov.br/api/mapa` e `/api/mapa/{IdEstacao}` (timeout 5s, fallback gracioso para Open-Meteo se indisponível).
-   - Converte o sub-índice horário `ValorIqa` de cada poluente pela função inversa da tabela IQAr (`packages/core-iqar`) ou usa `Valor` direto quando for o poluente dominante, gravando em `observed_measurements` com `source = 'IEMA'`.
-   - Com isso, cada uma das 9 estações passa a exibir imediatamente **seu próprio IQAr físico real e sua própria curva de 48h** no app!
+   - Preserva intacto o contrato `FEATURE_ORDER_V2` (30 features em [`db/schema.ts`](../../db/schema.ts#L169-L176)) e os 5 alvos (`pm25`, `pm10`, `o3`, `no2`, `so2`).
+3. **Ingestão em Tempo Real em [`workers/ingestion/src/index.ts`](../../workers/ingestion/src/index.ts):**
+   - No cron `:30`, consulta `https://qualidadedoarapi.es.gov.br/api/mapa` e `/api/mapa/{IdEstacao}` para os IDs da RGV (`1, 2, 3, 4, 5, 6, 8, 9`), com timeout de 5s e fallback gracioso para Open-Meteo (`CAMPS_ANALYSIS_SOURCE` / `CAMPS_FORECAST_SOURCE`) caso a API do IEMA esteja indisponível.
+   - Converte o timestamp local (`America/Sao_Paulo`, `UTC-3`) para UTC (`YYYY-MM-DDTHH:00`), inverte o sub-índice horário `ValorIqa` de cada poluente pela tabela CONAMA 491/2018 (`packages/core-iqar/src/iqar.ts`) ou utiliza `Valor` direto quando for o poluente dominante, e executa o upsert em **`observed_pollutants`** via `buildObservedUpsert()` gravando `source = IEMA_SENTINEL` (`"IEMA"`), ao lado do upsert meteorológico em **`environmental_features`** via `buildFeaturesUpsert()`.
+   - Com isso, cada estação em `observed_pollutants` passa a exibir imediatamente **seu próprio IQAr físico real e sua própria curva de 48h** no app!
 4. **Declaração de Proveniência em `apps/web/public/data/model-eval.json`:**
    - Atualizar `provenance.target_source` de `"CAMS regional (~40km)"` para `"IEMA-ES RAMQAr in-situ (estações físicas RGV1..RGV9, validado CQAI)"`.
+
