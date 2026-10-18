@@ -384,6 +384,25 @@ def test_paths_serialized_as_posix_no_backslashes():
             f"JSON serializado contém escape de contra-barra: {raw_json_str}"
         )
 
+        # Testa caminho com parênteses e caminho vazio (não pode virar ".")
+        payload_edge = build_payload(
+            [st],
+            model_version="vX",
+            feature_order_version="v2",
+            window_from=st["timestamps"][0],
+            window_to=st["timestamps"][-1],
+            window_hours=4,
+            raw_fetched_at="",
+            generated_at="2026-10-02T17:00:00Z",
+            source_ml="data (backup)\\stations (v1)\\stations-data.json (LightGBM, calibrado)",
+            source_api="Open-Meteo",
+            raw_file="",
+            validation_note="nota",
+            caveats=[],
+        )
+        assert payload_edge["source"]["raw_file"] == "", "Caminho vazio não deve virar '.'"
+        assert payload_edge["source"]["ml"] == "data (backup)/stations (v1)/stations-data.json (LightGBM, calibrado)"
+
 
 if __name__ == "__main__":
     test_ml_column_is_copied_never_recomputed()

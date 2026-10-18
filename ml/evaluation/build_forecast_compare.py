@@ -226,6 +226,13 @@ def summarize(stations: list) -> dict:
     }
 
 
+def _to_posix_path(p: str) -> str:
+    if not p:
+        return ""
+    p_norm = str(p).replace("\\", "/")
+    return Path(p_norm).as_posix() if p_norm else ""
+
+
 def build_payload(
     stations: list,
     *,
@@ -284,12 +291,14 @@ def build_payload(
         clean["pollutants"] = poll
         rounded.append(clean)
     stations = rounded
-    raw_file_posix = Path(str(raw_file).replace("\\", "/")).as_posix()
-    if " (" in str(source_ml):
-        src_path_part, src_annot = str(source_ml).split(" (", 1)
-        source_ml_posix = f"{Path(src_path_part.replace('\\', '/')).as_posix()} ({src_annot}"
+    raw_file_posix = _to_posix_path(raw_file)
+    s_ml = str(source_ml) if source_ml is not None else ""
+    if " (" in s_ml:
+        src_path_part, src_annot = s_ml.rsplit(" (", 1)
+        clean_path = _to_posix_path(src_path_part)
+        source_ml_posix = f"{clean_path} ({src_annot}" if clean_path else f"({src_annot}"
     else:
-        source_ml_posix = Path(str(source_ml).replace("\\", "/")).as_posix()
+        source_ml_posix = _to_posix_path(s_ml)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,

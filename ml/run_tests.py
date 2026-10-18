@@ -37,7 +37,7 @@ def run_tests() -> int:
         print(f"\n[run_tests] Rodando: {rel} ...", flush=True)
         env = dict(os.environ)
         # Garante que a raiz do projeto esteja no PYTHONPATH
-        env["PYTHONPATH"] = str(ML_DIR.parent) + (f":{env['PYTHONPATH']}" if "PYTHONPATH" in env else "")
+        env["PYTHONPATH"] = str(ML_DIR.parent) + (f"{os.pathsep}{env['PYTHONPATH']}" if "PYTHONPATH" in env else "")
         res = subprocess.run([sys.executable, str(test_path)], env=env)
         if res.returncode != 0:
             print(f"[run_tests] ❌ FALHOU: {rel} (código {res.returncode})", file=sys.stderr)
