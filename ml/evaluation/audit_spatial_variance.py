@@ -307,19 +307,34 @@ def audit_stations_data(stations_path: Path | None = None) -> dict[str, Any]:
     }
 
 
-def run_full_audit(repo_root: Path | None = None) -> dict[str, Any]:
+def run_full_audit(
+    repo_root: Path | None = None,
+    *,
+    openmeteo_path: Path | None = None,
+    comparison_path: Path | None = None,
+    forecast_path: Path | None = None,
+    stations_path: Path | None = None,
+) -> dict[str, Any]:
+    """Auditoria completa.
+
+    Os artefatos regeneráveis podem ser sobrescritos para apontar a fixtures
+    congeladas (CI determinístico). Sem sobrescritas o comportamento é o de
+    sempre: lê o repo vivo a partir de `repo_root` (uso manual do script).
+    """
     root = repo_root or REPO_ROOT
     return {
         "seed": audit_seed_coordinates(root / "db" / "seed.sql"),
-        "openmeteo_raw": audit_openmeteo_raw(root / "ml" / "data" / "openmeteo_raw.json"),
+        "openmeteo_raw": audit_openmeteo_raw(
+            openmeteo_path or root / "ml" / "data" / "openmeteo_raw.json"
+        ),
         "holdout_comparison": audit_holdout_comparison(
-            root / "apps" / "web" / "public" / "data" / "comparison-data.json"
+            comparison_path or root / "apps" / "web" / "public" / "data" / "comparison-data.json"
         ),
         "forecast_compare": audit_forecast_compare(
-            root / "apps" / "web" / "public" / "data" / "forecast-compare.json"
+            forecast_path or root / "apps" / "web" / "public" / "data" / "forecast-compare.json"
         ),
         "stations_data": audit_stations_data(
-            root / "apps" / "web" / "public" / "data" / "stations-data.json"
+            stations_path or root / "apps" / "web" / "public" / "data" / "stations-data.json"
         ),
     }
 
