@@ -1,0 +1,32 @@
+---
+// apps/web/src/pages/confronto.astro — Rota canônica da seção "Confronto" (Modelo × Open-Meteo)
+//
+// Reúne numa única seção do painel as duas janelas de confronto Modelo × Open-Meteo:
+//   - Sub-aba "Previsão — 120h à frente" (forecast-compare.json): projeção futura,
+//     onde o CAMS da hora entra nas features do modelo; não valida precisão.
+//   - Sub-aba "Holdout — 168h de validação" (comparison-data.json): janela passada
+//     fora do treino, que valida o erro real do modelo.
+// As rotas legadas `/comparacao-previsao` e `/comparacao` seguem ativas e abrem
+// diretamente a sub-aba correspondente.
+import comparisonData from "../../public/data/comparison-data.json";
+import forecastCompare from "../../public/data/forecast-compare.json";
+import DashboardShell from "../components/DashboardShell.svelte";
+import Layout from "../layouts/Layout.astro";
+import { getShellStaticProps } from "../lib/shell-props";
+
+const shellProps = getShellStaticProps();
+const FORECAST_HOURS = forecastCompare.window.hours;
+const HOLDOUT_HOURS = comparisonData.holdout.hours;
+---
+
+<Layout
+  title="AetherML — Confronto Modelo vs Open-Meteo (Previsão e Holdout)"
+  description={`Confronto hora a hora entre o modelo AetherML e a re-análise CAMS/Open-Meteo em duas sub-abas distintas: previsão futura (${FORECAST_HOURS}h à frente) e validação em holdout (${HOLDOUT_HOURS}h fora do treino).`}
+>
+  <DashboardShell
+    client:load
+    initialSection="confronto"
+    initialSubtab="previsao"
+    {...shellProps}
+  />
+</Layout>

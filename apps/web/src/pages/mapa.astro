@@ -1,6 +1,4 @@
 ---
-import { globalIQAr } from "@aetherml/core-iqar";
-import stationsData from "../../public/data/stations-data.json";
 import DashboardShell from "../components/DashboardShell.svelte";
 // apps/web/src/pages/mapa.astro — rota preservada da seção "Mapa"
 //
@@ -13,35 +11,14 @@ import DashboardShell from "../components/DashboardShell.svelte";
 // estações chegam como HTML. A única coisa que precisa do browser é a instância
 // Leaflet, criada em `onMount`.
 import Layout from "../layouts/Layout.astro";
-import { currentPoint } from "../lib/current-point";
-import { dominantConcentration } from "../lib/dashboard-sections";
+import { getShellStaticProps } from "../lib/shell-props";
 
-const nowMs = Date.now();
-// Mesma semântica do Dashboard e de estacao/[id].astro: o IQAr do marcador é o do
-// ponto mais recente com `timestamp <= now`, nunca o ponto futuro mais próximo.
-const initialMapStations = Object.values(stationsData as any)
-	.map((item: any) => {
-		const picked = currentPoint(item.points, nowMs);
-		if (!picked) return null;
-		const res = globalIQAr(picked.point.observed);
-		return {
-			id: item.station.id,
-			name: item.station.name,
-			municipality: item.station.municipality,
-			latitude: item.station.latitude ?? item.station.lat,
-			longitude: item.station.longitude ?? item.station.lon,
-			iqar: res.iqar,
-			classification: res.classification,
-			primary: res.primary,
-			concentration: dominantConcentration(picked.point.observed, res.primary),
-		};
-	})
-	.filter((s) => s !== null);
+const shellProps = getShellStaticProps();
 ---
 
 <Layout
   title="AetherML — Mapa Espacial da Grande Vitória"
   description="Mapa das 9 estações RAMQAr da Grande Vitória com o IQAr CONAMA 491/2018 e a concentração em µg/m³ do poluente dominante, estação a estação."
 >
-  <DashboardShell client:load initialSection="mapa" initialMapStations={initialMapStations} />
+  <DashboardShell client:load initialSection="mapa" {...shellProps} />
 </Layout>
