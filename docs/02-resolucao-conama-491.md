@@ -66,9 +66,9 @@ A Resolução CONAMA 491/2018 estipula que as concentrações de referência nã
 O pacote `@aetherml/core-iqar` fornece as funções canônicas para o cálculo regulatório estrito:
 
 - `REGULATORY_WINDOWS`: dicionário de janelas temporais regulamentares (`pm25: 24`, `pm10: 24`, `so2: 24`, `o3: 8`, `no2: 1`).
-- `calculateRegulatoryMovingAverage(series, windowHours)`: calcula a média móvel estrita sobre série horária contígua e válida. Se a série contiver menos horas do que a janela regulatória ou apresentar lacunas temporais, retorna `null` para evitar subestimação ou cálculo espúrio.
-- `calculatePollutantMovingAverages(hourlySeries)`: computa a média móvel regulatória para cada poluente suportado.
-- `calculateRegulatoryIQAr(hourlySeries)`: avalia o IQAr regulatório a partir das concentrações médias móveis e determina o poluente crítico.
+- `calculateRegulatoryMovingAverage(pollutant, hourlyValues)`: calcula a média móvel regulatória para o poluente especificado sobre um vetor de valores numéricos de concentrações horárias (`number[]`). Valida se a quantidade de valores preenche integralmente o tamanho da janela regulatória e se todos os valores da janela são finitos e não-negativos; caso contrário, retorna `null` (nunca zero silencioso). Como opera sobre valores brutos sem timestamps, a garantia de amostragem em passos horários contínuos e sem lacunas temporais é responsabilidade do chamador.
+- `calculatePollutantMovingAverages(pollutant, hourlySeries)`: computa o vetor de médias móveis regulatórias ao longo de uma série horária contínua para o poluente indicado (índices anteriores à janela recebem `null`).
+- `calculateRegulatoryIQAr(movingAverages)`: avalia o IQAr regulatório a partir das concentrações médias móveis calculadas e determina o poluente crítico.
 
 ### 5.2 Estimativa Horária Pontual na Interface
 

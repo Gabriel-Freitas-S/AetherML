@@ -1,7 +1,7 @@
 // apps/web/src/lib/provenance.ts — fonte única da verdade sobre DE ONDE VEIO o número
 // que o painel está exibindo.
 //
-// Três perguntas, uma tira: origem, horário do dado mais recente, idade.
+// Três perguntas, uma tira: origem, início/mais recente, horizonte/idade.
 // Com dados frescos, uma série de previsão estende-se no futuro (now+1h .. now+120h).
 // Essa série é PREVISÃO NORMAL (não erro, não histórico).
 //
@@ -30,12 +30,13 @@ import type { DataAge } from "./forecast-days.ts";
 export type DataOrigin = "ml" | "open-meteo" | "unknown";
 
 export interface OriginInfo {
+	/** Identificador canônico da origem. */
 	id: DataOrigin;
-	/** Rótulo curto da tira. */
+	/** Rótulo curto exibido na tira. */
 	label: string;
-	/** O que a origem é, em uma frase — sem prometer o que não é. */
+	/** Descrição contextual da procedência (sem prometer o que não é). */
 	detail: string;
-	/** Só `ml` é saída do modelo do projeto. */
+	/** Só `ml` é saída do modelo de Machine Learning do projeto. */
 	isMl: boolean;
 }
 
@@ -68,7 +69,8 @@ export function describeOrigin(
 	return {
 		id: "unknown",
 		label: "Origem desconhecida",
-		detail: "Não foi possível identificar a origem desta série.",
+		detail:
+			"Não foi possível identificar a origem desta série; não é saída do modelo LightGBM do projeto.",
 		isMl: false,
 	};
 }
@@ -92,42 +94,54 @@ export function freshnessOf(isStale: boolean, isFallback: boolean): Freshness {
 	return "live";
 }
 
+/** Linha chave-valor da tabela de proveniência na interface. */
 export interface ProvenanceRow {
+	/** Rótulo fixo da métrica (ex.: 'Origem', 'Início da previsão', 'Horizonte até'). */
 	label: string;
+	/** Valor textual formatado correspondente. */
 	value: string;
 }
 
+/** Parâmetros de entrada para montagem da tira de proveniência. */
 export interface ProvenanceInput {
+	/** Origem declarada dos dados ('ml', 'open-meteo' ou 'unknown'). */
 	origin: DataOrigin | null | undefined;
+	/** Metadados de idade calculada em relação ao relógio. */
 	age: DataAge;
-	/** Verdadeiro quando a série não tem nenhum ponto no futuro. */
+	/** Verdadeiro quando a série não possui pontos futuros (apenas histórico). */
 	isStale: boolean;
-	/** Verdadeiro quando `currentPoint` caiu no ponto mais antigo (série no futuro). */
+	/** Verdadeiro quando o ponto atual foi resolvido como fallback do início da série. */
 	isFallback?: boolean;
-	/** Ponto inicial ou de referência da previsão. */
+	/** Ponto inicial em ISO da série de previsão. */
 	startTimestamp?: string | null;
+	/** Timestamp de referência atual do dado (<= now). */
 	referenceTimestamp?: string | null;
-	/** Fim da série (horizonte final de previsão). */
+	/** Ponto final em ISO da série de previsão (horizonte máximo). */
 	horizonTimestamp?: string | null;
+	/** Timestamp de referência para cálculo relativo (padrão: agora). */
 	now?: Date;
 }
 
+/** Objeto final de proveniência consumido pela interface do usuário. */
 export interface Provenance {
+	/** Metadados estruturados sobre a fonte geradora. */
 	origin: OriginInfo;
+	/** Categorização da tempestividade da série (live, stale ou ahead). */
 	freshness: Freshness;
-	/** Frase de abertura da tira. */
+	/** Frase de abertura da tira de proveniência. */
 	headline: string;
 	/**
 	 * `"alert"` só quando a atualidade é questionável (stale) ou origem externa (open-meteo/unknown).
-	 * Série em dia (live ou ahead) não ocupa região viva.
+	 * Séries em dia (live ou ahead) não disparam alerta visual nem auditivo.
 	 */
 	role: "alert" | null;
+	/** Flag booleano para estilização e verificações condicionais. */
 	isAlert: boolean;
-	/** `amber` quando qualquer coisa precisa de destaque visual. */
+	/** `amber` para alertas de dado vencido ou fallback; `neutral` para operação regular. */
 	tone: "neutral" | "amber";
-	/** As três respostas, sempre nesta ordem e com estes rótulos. */
+	/** As três respostas estruturadas: Origem, Início/Mais recente e Horizonte/Idade. */
 	rows: ProvenanceRow[];
-	/** Fatos que não cabem numa linha: nunca vazio se a origem não for `ml`. */
+	/** Avisos e ressalvas metodológicas exibidos abaixo da tira. */
 	warnings: string[];
 }
 
@@ -145,12 +159,10 @@ export function buildProvenance(input: ProvenanceInput): Provenance {
 	const warnings: string[] = [];
 	if (!origin.isMl) {
 		warnings.push(
-			`Esta série vem de ${origin.label} — não é saída do modelo LightGBM do projeto.`,
+			`Esta série foi gerada por ${origin.label} — ${origin.detail}`,
 		);
 	}
 	if (freshness === "stale") {
-		// Redação única do projeto: `formatStaleNotice` também alimenta a página da
-		// estação, então o texto não pode divergir entre telas.
 		warnings.push(formatStaleNotice(age).body);
 	}
 
@@ -196,6 +208,21 @@ export function buildProvenance(input: ProvenanceInput): Provenance {
 	};
 }
 
+/**
+ * Linha de transparência metodológica CONAMA 491/2018 (BUG-09).
+ * Discrimina se as estimativas horárias pontuais provêm do modelo LightGBM do projeto
+ * ou da API pública Open-Meteo, evitando contradição quando em modo fallback.
+ */
+export function estimateLine(origin?: DataOrigin | null): string {
+	if (origin === "open-meteo") {
+		return "Estimativa a partir de valores horários da API Open-Meteo; a CONAMA 491 exige médias móveis (24h/8h)";
+	}
+	if (origin === "ml" || !origin) {
+		return "Estimativa a partir de valores horários do modelo; a CONAMA 491 exige médias móveis (24h/8h)";
+	}
+	return "Estimativa a partir de valores horários; a CONAMA 491 exige médias móveis (24h/8h)";
+}
+
 /** Redação única para o texto de abertura do Dashboard (evita contradição de legendas). */
 export function getLeadLine(opts: {
 	freshness: Freshness;
@@ -207,10 +234,19 @@ export function getLeadLine(opts: {
 }): string {
 	const when = opts.observedAt ?? DASH;
 	if (opts.freshness === "stale") {
-		return `A série desta estação termina em ${when} (${opts.ageText ?? ""}). As horas abaixo são histórico do modelo, não previsão.`;
+		const sourceLabel =
+			opts.origin === "open-meteo"
+				? "da API Open-Meteo"
+				: opts.origin === "ml" || !opts.origin
+					? "do modelo"
+					: "dos dados";
+		return `A série desta estação termina em ${when} (${opts.ageText ?? ""}). As horas abaixo são histórico ${sourceLabel}, não previsão.`;
 	}
 	if (opts.origin === "open-meteo") {
-		return `Série da API pública Open-Meteo para as próximas ${opts.pointsCount} h em ${opts.stationName}. Não é saída do modelo LightGBM do projeto.`;
+		return `Série da API pública Open-Meteo com ${opts.pointsCount} h de dados em ${opts.stationName}. Não é saída do modelo LightGBM do projeto.`;
+	}
+	if (opts.origin && opts.origin !== "ml") {
+		return `Previsão horária contínua para as próximas ${opts.pointsCount} h em ${opts.stationName}, classificada segundo as diretrizes de saúde da Resolução CONAMA 491/2018.`;
 	}
 	return `Previsão horária contínua do modelo para as próximas ${opts.pointsCount} h em ${opts.stationName}, classificada segundo as diretrizes de saúde da Resolução CONAMA 491/2018.`;
 }

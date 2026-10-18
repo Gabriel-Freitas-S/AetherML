@@ -27,6 +27,7 @@ import {
 import {
 	type DataOrigin,
 	buildProvenance,
+	estimateLine,
 	getLeadLine,
 } from "../lib/provenance";
 import ForecastChart from "./ForecastChart.svelte";
@@ -412,7 +413,9 @@ onMount(() => {
         <!-- Figura primária: IQAr do ponto atual -->
         <div class="lg:col-span-5 relative bg-white border border-slate-200 p-6 rounded-2xl flex flex-col items-center justify-center text-center shadow-lg overflow-hidden">
           <div class="absolute top-0 inset-x-0 h-1" style="background: linear-gradient(90deg, transparent, {iqarHex(currentPoint.classification)}, transparent)"></div>
-          <span class="text-[10px] uppercase font-bold tracking-[0.16em] text-slate-500">Índice IQAr Atual</span>
+          <span class="text-[10px] uppercase font-bold tracking-[0.16em] text-slate-500">
+            {provenance.freshness === "ahead" ? "Índice IQAr (Início da Previsão)" : "Índice IQAr Atual"}
+          </span>
           <div class="text-6xl sm:text-7xl font-black font-mono leading-none tabular-nums" style="color: {iqarTextColor(currentPoint.classification)}">
             {currentPoint.iqar}
           </div>
@@ -422,7 +425,7 @@ onMount(() => {
             <span class="opacity-60">&bull;</span>
             <span>{formatPollutantName(currentPoint.primary)}</span>
           </div>
-          <p class="mt-1 text-[10px] uppercase font-bold tracking-wider text-slate-400">Estimativa a partir de valores horários do modelo; a CONAMA 491 exige médias móveis (24h/8h)</p>
+          <p class="mt-1 text-[10px] uppercase font-bold tracking-wider text-slate-400">{estimateLine(activeOrigin)}</p>
           <div class="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-left text-xs text-slate-700 leading-snug w-full">
             <span class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Recomendação de Saúde:</span>
             {iqarAdvice(currentPoint.classification)}
@@ -484,8 +487,9 @@ onMount(() => {
   <!-- Proveniência: origem, horário do dado mais recente, idade e estado de
        desatualização em UM lugar só. Antes eram duas afordâncias para o mesmo fato:
        o banner âmbar de "desatualizado" e a linha "Dado mais recente" no hero.
-       `role="alert"` e o âmbar continuam aqui quando freshness !== "live" — a
-       acessibilidade do aviso antigo não se perde ao des-duplicar. -->
+       `role="alert"` e o tom âmbar são acionados apenas quando a série está vencida
+       (stale) ou provém de fallback externo — séries futuras em dia (`ahead`/`live`)
+       mantêm tom neutro e não disparam alerta. -->
   <section
     aria-label="Proveniência e atualidade dos dados"
     role={provenance.role ?? undefined}
@@ -537,7 +541,7 @@ onMount(() => {
       <span class="text-xs text-slate-500">{dayCards.isStale ? "Sem previsão à frente" : "120 horas contínuas (Resolução CONAMA 491)"}</span>
     </div>
     <p class="mb-3 text-xs text-slate-500">
-      Cada cartão mostra a <strong class="text-slate-700">média do IQAr no dia</strong> (figura grande) e o <strong class="text-slate-700">pico horário</strong> (faixa do dia = pior hora, conforme diretriz de saúde pública). Estimativa a partir de valores horários do modelo; a CONAMA 491 exige médias móveis (24h/8h).
+      Cada cartão mostra a <strong class="text-slate-700">média do IQAr no dia</strong> (figura grande) e o <strong class="text-slate-700">pico horário</strong> (faixa do dia = pior hora, conforme diretriz de saúde pública). {estimateLine(activeOrigin)}.
     </p>
     <div class="flex sm:grid sm:grid-cols-3 lg:grid-cols-5 gap-3.5 overflow-x-auto pb-2 snap-x snap-mandatory">
       {#each fiveDaysForecast as day}

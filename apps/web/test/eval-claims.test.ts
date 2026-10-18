@@ -166,7 +166,7 @@ test("formatClassAccuracy mantém o formato de tela e troca 0 por travessão", (
 });
 
 test("pm25R2Diagnosis: condicional ao limiar de 0.75 e coerente com a badge (BUG-10)", () => {
-	// Acima do limiar: texto positivo/neutro, nunca 'baixo'
+	// Acima do limiar: texto positivo/neutro, citando a referência CAMS (não sensores de rua)
 	const highDiag = pm25R2Diagnosis(0.9377);
 	assert.ok(highDiag !== null);
 	assert.ok(
@@ -174,6 +174,14 @@ test("pm25R2Diagnosis: condicional ao limiar de 0.75 e coerente com a badge (BUG
 		"R² 0.9377 não pode ser classificado como baixo",
 	);
 	assert.ok(highDiag.includes("0.9377"));
+	assert.ok(
+		highDiag.includes("CAMS"),
+		"deve citar a série de referência CAMS (protocolo de avaliação)",
+	);
+	assert.ok(
+		!highDiag.includes("sensores observados"),
+		"não deve afirmar medição direta de sensores observados de rua",
+	);
 
 	// No limiar exato (0.75): positivo/neutro
 	const edgeDiag = pm25R2Diagnosis(0.75);

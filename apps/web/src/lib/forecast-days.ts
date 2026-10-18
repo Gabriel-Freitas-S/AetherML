@@ -55,7 +55,6 @@ export interface DayCardsResult {
 	horizonMs: number | null;
 	/** Primeiro ponto da série. */
 	startTimestamp: string | null;
-	startMs: number | null;
 	/** Mantido por compatibilidade: equivale ao fim da série (horizonTimestamp). */
 	newestTimestamp: string | null;
 	newestMs: number | null;
@@ -294,7 +293,6 @@ export function buildFiveDayCards(
 		horizonTimestamp: horizonIso,
 		horizonMs: newestMs,
 		startTimestamp: startIso,
-		startMs: earliestMs,
 		newestTimestamp: horizonIso,
 		newestMs,
 	};

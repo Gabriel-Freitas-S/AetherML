@@ -43,7 +43,7 @@ Plataforma inteligente e descentralizada para **previsão horária (horizonte 48
 - `I_p = I_ini + (I_fim - I_ini)/(C_fim - C_ini) * (C_p - C_ini)`
 - `IQAr_global = max_p{I_p}`
 - Médias móveis regulatórias CONAMA 491/2018 (`@aetherml/core-iqar`): 24h para PM2.5/PM10/SO2, 8h para O3/CO, 1h para NO2 (`calculateRegulatoryMovingAverage`, `calculatePollutantMovingAverages`, `calculateRegulatoryIQAr`).
-- Estimativa horária vs. IQAr regulatório: sem a série histórica recente antecedente (24h) acoplada ao bundle, a previsão é apresentada na UI sob aviso explícito de *"Estimativa a partir de valores horários do modelo; a CONAMA 491 exige médias móveis (24h/8h)"*.
+- Estimativa horária vs. IQAr regulatório: sem a série histórica recente antecedente (24h) acoplada ao bundle, a previsão é apresentada na UI sob aviso explícito condicionado à origem ativa (`estimateLine(activeOrigin)`): *"Estimativa a partir de valores horários do modelo [ou da API Open-Meteo]; a CONAMA 491 exige médias móveis (24h/8h)"*.
 - Próxima etapa de integração: conectar observações históricas recentes da estação (D1 / RAMQAr ou fallback Open-Meteo com `past_days=1`) para alimentar a janela móvel completa no frontend.
 - Haversine com R=6371km para estação mais próxima (9 estações RAMQAr)
 - Modelos <1,5MB `.onnx`, hash SHA-256 imutável, versionados `vAAAA.SS.N`

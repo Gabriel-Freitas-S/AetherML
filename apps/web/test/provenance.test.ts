@@ -12,6 +12,7 @@ import type { DataAge } from "../src/lib/forecast-days.ts";
 import {
 	buildProvenance,
 	describeOrigin,
+	estimateLine,
 	freshnessOf,
 	getLeadLine,
 } from "../src/lib/provenance.ts";
@@ -283,6 +284,53 @@ test("BUG-08: unificação de redação impede que frases contraditórias coexis
 	});
 	assert.match(pFallback.origin.detail, /não é saída do LightGBM/i);
 	assert.match(leadFallback, /não é saída do modelo/i);
+});
+
+test("estimateLine: condicionado à origem ativa (modelo ML vs Open-Meteo)", () => {
+	// Origem ML
+	const mlEstimate = estimateLine("ml");
+	assert.match(mlEstimate, /valores horários do modelo/i);
+	assert.match(mlEstimate, /CONAMA 491/i);
+
+	// Fallback Open-Meteo: não pode afirmar ser do modelo
+	const omEstimate = estimateLine("open-meteo");
+	assert.match(omEstimate, /valores horários da API Open-Meteo/i);
+	assert.doesNotMatch(omEstimate, /do modelo/i);
+	assert.match(omEstimate, /CONAMA 491/i);
+
+	// Default sem origem
+	assert.match(estimateLine(), /valores horários do modelo/i);
+	assert.match(estimateLine(null), /valores horários do modelo/i);
+
+	// Origem genérica / desconhecida
+	const unkEstimate = estimateLine("unknown" as any);
+	assert.match(unkEstimate, /valores horários;/i);
+	assert.doesNotMatch(unkEstimate, /do modelo/i);
+	assert.doesNotMatch(unkEstimate, /Open-Meteo/i);
+});
+
+test("getLeadLine: defensivo à origem em stale e sem contagem enganosa em open-meteo", () => {
+	// Stale com Open-Meteo não pode dizer "histórico do modelo"
+	const staleOm = getLeadLine({
+		freshness: "stale",
+		stationName: "Camburi",
+		pointsCount: 120,
+		observedAt: "02/10 03:00",
+		ageText: "há 8 dias",
+		origin: "open-meteo",
+	});
+	assert.doesNotMatch(staleOm, /histórico do modelo/i);
+	assert.match(staleOm, /Open-Meteo/i);
+
+	// Open-Meteo não diz "próximas N h" (que contaria horas passadas)
+	const omLead = getLeadLine({
+		freshness: "live",
+		stationName: "Camburi",
+		pointsCount: 120,
+		origin: "open-meteo",
+	});
+	assert.doesNotMatch(omLead, /próximas 120 h/i);
+	assert.match(omLead, /120 h de dados/i);
 });
 
 test("buildProvenance: sem dado nenhum a tira diz '—' em vez de mentir com vazio", () => {

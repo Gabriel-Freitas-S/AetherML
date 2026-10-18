@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { globalIQAr } from "@aetherml/core-iqar";
 import { currentPoint } from "../src/lib/current-point.ts";
 
 interface FakePoint {
 	timestamp: string;
 	iqar: number;
+	observed?: Record<string, number>;
+	primary?: string;
 }
 
 /** Relógio congelado: 02/10/2026 17:20Z. */
@@ -125,39 +128,90 @@ test("currentPoint: não muta o array de entrada", () => {
 	assert.equal(series.length, 5);
 });
 
-test("BUG-06 regressão: todas as superfícies (Hero, Faixas CONAMA, Estações) usam rigorosamente o mesmo ponto e IQAr", () => {
-	// Simula série horária com 24h passadas e 48h futuras
-	const pastAndFutureSeries = [
-		point(-120, 35),
-		point(-60, 42),
-		point(0, 48), // Ponto atual exato
-		point(60, 85), // Previsão futura (IQAr bem diferente)
-		point(120, 110),
+// BUG-06: Verificação arquitetural de fiação e determinismo da fonte única.
+// Consumidores verificados no código-fonte:
+// - Dashboard.svelte: const currentRes = currentPoint(points, now)
+// - Map.svelte: const picked = currentPoint(item.points, Date.now())
+// - estacao/[id].astro: const currentRes = currentPoint(points, now)
+// Todos importam o mesmo módulo `../lib/current-point` e derivam o IQAr via `globalIQAr(p.observed)`.
+test("BUG-06: clamp ao passado e consistência do trio (timestamp, iqar, primary) entre Dashboard e estacao/[id]", () => {
+	// Série bruta de entrada com concentrações observadas (reproduz o bundle real)
+	const rawBundlePoints = [
+		{
+			timestamp: new Date(NOW - 120 * 60_000).toISOString(),
+			observed: { pm25: 12, o3: 40, no2: 25 },
+		},
+		{
+			timestamp: new Date(NOW - 60 * 60_000).toISOString(),
+			observed: { pm25: 22, o3: 75, no2: 30 }, // Moderada, crítico PM2.5
+		},
+		{
+			timestamp: new Date(NOW).toISOString(),
+			observed: { pm25: 14, o3: 115, no2: 35 }, // Moderada, crítico O3
+		},
+		{
+			timestamp: new Date(NOW + 60 * 60_000).toISOString(),
+			observed: { pm25: 45, o3: 60, no2: 50 }, // Ruim (previsão futura)
+		},
 	];
 
-	// Simula a resolução em cada superfície
-	const heroPoint = currentPoint(pastAndFutureSeries, NOW)?.point;
-	const faixasFirstPoint = currentPoint(pastAndFutureSeries, NOW)?.point;
-	const stationDetailPagePoint = currentPoint(pastAndFutureSeries, NOW)?.point;
+	// Derivação canônica feita no Dashboard.svelte e em estacao/[id].astro
+	const dashboardTransformed = rawBundlePoints.map((p) => {
+		const res = globalIQAr(p.observed);
+		return {
+			...p,
+			iqar: res.iqar,
+			classification: res.classification,
+			primary: res.primary,
+		};
+	});
 
-	assert.ok(heroPoint && faixasFirstPoint && stationDetailPagePoint);
-	assert.equal(heroPoint.timestamp, faixasFirstPoint.timestamp);
-	assert.equal(heroPoint.timestamp, stationDetailPagePoint.timestamp);
-	assert.equal(heroPoint.iqar, 48);
-	assert.equal(faixasFirstPoint.iqar, 48);
-	assert.equal(stationDetailPagePoint.iqar, 48);
-	assert.equal(heroPoint.timestamp, new Date(NOW).toISOString());
+	const stationTransformed = rawBundlePoints.map((p) => {
+		const res = globalIQAr(p.observed);
+		return {
+			...p,
+			iqar: res.iqar,
+			classification: res.classification,
+			primary: res.primary,
+		};
+	});
 
-	// Quando now está entre pontos (ex. 25 min após o ponto -60, faltando 35 min para o ponto 0)
-	const intermediateNow = NOW - 35 * 60_000; // 25 min após point(-60)
-	const heroInter = currentPoint(pastAndFutureSeries, intermediateNow)?.point;
-	const faixasInter = currentPoint(pastAndFutureSeries, intermediateNow)?.point;
+	// Resolução em NOW exato
+	const dashPoint = currentPoint(dashboardTransformed, NOW)?.point;
+	const stationPoint = currentPoint(stationTransformed, NOW)?.point;
 
-	assert.ok(heroInter && faixasInter);
-	assert.equal(heroInter.timestamp, faixasInter.timestamp);
+	assert.ok(dashPoint && stationPoint);
+	// Trio (timestamp, iqar, primary) perfeitamente alinhado
+	assert.equal(dashPoint.timestamp, stationPoint.timestamp);
+	assert.equal(dashPoint.iqar, stationPoint.iqar);
+	assert.equal(dashPoint.primary, stationPoint.primary);
+	assert.equal(dashPoint.timestamp, new Date(NOW).toISOString());
+	assert.equal(dashPoint.primary, "o3");
+
+	// Resolução com NOW intermediário (+20 min após o ponto -60, -40 min antes do ponto 0)
+	// A distância absoluta até o ponto 0 (40 min) é maior que até o ponto -60 (20 min),
+	// mas se estivéssemos em +45 min (15 min antes de 0), a distância até o ponto 0 seria menor.
+	const intermediateNow = NOW - 15 * 60_000; // 45 min após ponto(-60), 15 min antes de ponto(0)
+	const intermediateDash = currentPoint(
+		dashboardTransformed,
+		intermediateNow,
+	)?.point;
+	const intermediateStation = currentPoint(
+		stationTransformed,
+		intermediateNow,
+	)?.point;
+
+	assert.ok(intermediateDash && intermediateStation);
+	assert.equal(intermediateDash.timestamp, intermediateStation.timestamp);
+	assert.equal(intermediateDash.iqar, intermediateStation.iqar);
+	assert.equal(intermediateDash.primary, intermediateStation.primary);
+
+	// Prova de clamp ao passado: mesmo com ponto(0) a apenas 15 min no futuro,
+	// o resolvedor obrigatoriamente trava no ponto(-60) que está a 45 min no passado.
 	assert.equal(
-		heroInter.iqar,
-		42,
-		"ambos selecionam o último ponto observado <= now (-60 min), nunca o ponto futuro mais próximo",
+		intermediateDash.timestamp,
+		new Date(NOW - 60 * 60_000).toISOString(),
+		"deve selecionar estritamente o ponto observado <= now (-60 min), garantindo clamp ao passado",
 	);
+	assert.equal(intermediateDash.primary, "pm25");
 });

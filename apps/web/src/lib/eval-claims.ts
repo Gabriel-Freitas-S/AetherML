@@ -196,5 +196,5 @@ export function pm25R2Diagnosis(r2: number | null | undefined): string | null {
 	if (r2 < 0.75) {
 		return `R² do PM2.5 ainda baixo (${r2}): o modelo acerta o nível médio, mas varia menos que o real — próximo ganho virá de dados de tráfego/satélite reais.`;
 	}
-	return `R² do PM2.5 elevado (${r2}): boa aderência à dinâmica e variabilidade dos sensores observados.`;
+	return `R² do PM2.5 elevado (${r2}): boa aderência à dinâmica e variabilidade da série de referência CAMS.`;
 }

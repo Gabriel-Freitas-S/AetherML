@@ -58,7 +58,6 @@ const {
 	cards: fiveDaysForecast,
 	isStale,
 	referenceTimestamp,
-	newestTimestamp,
 } = buildFiveDayCards(points as any);
 const dataAge = describeDataAge(referenceTimestamp);
 const staleNotice = formatStaleNotice(dataAge);
@@ -168,7 +167,7 @@ function iqarIcon(cls?: string): string {
     <div class="mb-2.5 flex items-center justify-between">
       <h2 class="text-sm font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-sky-500"></span>
-        {isStale ? "Série Observada por Dia" : "Prognóstico de 5 Dias (120 Horas Contínuas)"}
+        {isStale ? "Histórico do Modelo por Dia" : "Prognóstico de 5 Dias (120 Horas Contínuas)"}
       </h2>
       <span class="text-xs text-slate-500 font-mono">
         {dataAge.observedAt ? `Dados até ${dataAge.observedAt} (${dataAge.ageText})` : "Resolução Horária CONAMA 491"}
