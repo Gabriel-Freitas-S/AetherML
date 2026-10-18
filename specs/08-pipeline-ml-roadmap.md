@@ -15,10 +15,18 @@ Constraints exemplo LightGBM: `monotone_constraints = [+1,-1,-1, ...]` alinhado 
 
 Métricas gate: `R²≥0.65 (PM), ≥0.55 (O3/NO2)`, `MAE` por estação, `iqar_accuracy≥0.75`. Sem gate, sem deploy.
 
-## 2. Avaliação semanal (`ml/evaluation/` + Cron seg 06h)
+## 2. Avaliação e Retreino Semanal (`ml/evaluation/` + `.github/workflows/retrain.yml` — seg 06:00 UTC)
 
-- Join `observed × prediction_logs` da semana → MAE_pm25/o3/no2, `iqar_accuracy`, `false_alarm_rate` (previu Ruim+, ficou Boa/Moderada), `missed_event_rate` (ficou Ruim+, previu abaixo), drift PSI/KS nas features.
-- Grava `weekly_evaluations`; se `drift=1` ou `missed>0.15`, abre `evaluation_report_md` + flag p/ retreino.
+- **Gatilhos (`.github/workflows/retrain.yml`):** Cron semanal toda segunda-feira às `06:00 UTC` (`0 6 * * 1`) + `workflow_dispatch` (parâmetros `source=d1|local`, `dry_run`, `version`, `epsilon`).
+- **Fluxo ponta-a-ponta:**
+  1. **Ingestão e Extração (`fetch_openmeteo.py` → `fetch_from_d1.py`):** Atualiza a grade meteorológica/CAMS (`ml/data/openmeteo_raw.json`) e extrai `observed_pollutants` do Cloudflare D1 (`D1_DATABASE_ID=55d25065-ebc2-47a4-9fc3-16bbb96ef4ac`) com paginação keyset composta (`timestamp, station_id`). Quando a série na D1 ainda tem menos de `360h` (ex.: backfill inicial de 7 dias = `168h`), os registros da D1 são sobrepostos na janela correspondente sobre a série histórica para garantir as `30h` de buffer de lags e o conjunto de treino anterior ao holdout.
+  2. **Auditoria Semanal (`ml/evaluation/evaluate_weekly.py`):** Avalia o modelo ativo nas últimas `168h` por estação e globalmente (`mae_pm25`, `mae_o3`, `mae_no2`, `iqar_accuracy_pct`, `false_alarm_rate`, `missed_event_rate` e drift de features via `PSI`). Grava registros compatíveis com `weekly_evaluations` (D1 + JSON) e publica `evaluation_report_md` no Step Summary; sinaliza `retrain_recommended=true` se `drift_detected=1`, `missed_event_rate > 0.15` ou `PSI > 0.25`.
+  3. **Retreino Pareado Champion vs Challenger (`ml/training/retrain_real.py`):** Gera versão `vAAAA.SS.N` automática (`next_model_version`), reserva as últimas `168h` como holdout comum (excluindo-as do treino via `end_cutoff = holdout_start - 1h`), treina os 5 regressores LightGBM Challenger (`models/<versao>/`) e compara RMSE pareado na mesma janela.
+  4. **Promoção Transacional, R2, Artefatos e Deploy (somente se houve promoção e `ref == refs/heads/main`):**
+     - Promove granularmente apenas os poluentes com não-degradação (`RMSE_challenger <= RMSE_champion * (1 - epsilon)`), atualizando `models/registry.json` e `apps/web/public/models/`.
+     - Publica `.onnx` (`<1,5 MB`, SHA-256), `.topology.json`, `calibration.json` e `manifest.json` no bucket R2 `aetherml-models` (`python3 -m ml.training.upload_r2 upload && verify`).
+     - Regenera os 4 artefatos estáticos consumidos pelo frontend: `predict_forecast.py` (`stations-data.json`), `eval_holdout.py` (`model-eval.json`), `build_comparison.py` (`comparison-data.json`) e `build_forecast_compare.py` (`forecast-compare.json`).
+     - Commita os artefatos atualizados, executa `pnpm -r build` e publica no Cloudflare Pages (`npx -y wrangler@4 pages deploy apps/web/dist --project-name=aetherml --branch=main --commit-dirty=true`).
 - Fontes fotoquímicas H-II: treino O3 usa `no2_lag, radiação, temp, vento` (titulação + advecção); validação estratificada por quadrante de vento (NNE vs SSW).
 - **Estado da avaliação (BUG-05):** Entregues no artefato `model-eval.json` baselines de persistência (`lag1` e `lag24`) para todos os 5 alvos + IQAr, `skill_vs_persistence` e declaração de proveniência (`provenance`, CAMS regional ≠ medição in-situ).
 - **Próximo passo metodológico (MOS):** Com a disponibilização de medições físicas de estação (coluna `source`, migration `0002_observed_source.sql`, sentinela `IEMA`), transição do modelo para corretor de viés MOS (*Model Output Statistics*), onde $X$ = CAMS e $Y$ = ground truth *in-situ*.
