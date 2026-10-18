@@ -7,7 +7,6 @@ import argparse
 import os
 import sys
 import json
-import math
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -54,7 +53,10 @@ def evaluate_predictions(
     # Drift detectado se erro exceder limiares regulatórios
     drift_detected = (missed_event_rate > 0.15) or (mae_pm25 > 8.0) or (accuracy_pct < 75.0)
 
-    report_md = f"""# Relatorio de Auditoria Semanal de Modelos - {datetime.now().strftime('%Y-W%W')}
+    iso_year, iso_week, _ = datetime.now(timezone.utc).isocalendar()
+    week_label = f"{iso_year}-W{iso_week:02d}"
+
+    report_md = f"""# Relatorio de Auditoria Semanal de Modelos - {week_label}
 
 - **Total de Amostras Avaliadas**: {n}
 - **Acuracia de Classificacao IQAr**: {accuracy_pct}% (Meta: >=75%)
@@ -79,19 +81,18 @@ def evaluate_predictions(
     }
 
 
-def compute_feature_psi(
+def _compute_feature_psi_details(
     expected: np.ndarray,
     actual: np.ndarray,
     bins: int = 10,
-) -> float:
+) -> Tuple[float, int, int]:
     """
-    Calcula o Population Stability Index (PSI) médio entre a janela de referência
-    (treino/histórico) e a janela avaliada (últimas 168h), conforme specs/08 §2.
+    Retorna `(psi_medio, colunas_validas, colunas_puladas)`.
     """
     exp_arr = np.asarray(expected, dtype=np.float64)
     act_arr = np.asarray(actual, dtype=np.float64)
     if exp_arr.size == 0 or act_arr.size == 0:
-        return 0.0
+        return 0.0, 0, 0
     if exp_arr.ndim == 1:
         exp_arr = exp_arr.reshape(-1, 1)
     if act_arr.ndim == 1:
@@ -99,6 +100,7 @@ def compute_feature_psi(
 
     n_cols = min(exp_arr.shape[1], act_arr.shape[1])
     psi_vals: List[float] = []
+    skipped_cols = 0
     eps = 1e-4
 
     for col in range(n_cols):
@@ -107,6 +109,7 @@ def compute_feature_psi(
         e_col = e_col[np.isfinite(e_col)]
         a_col = a_col[np.isfinite(a_col)]
         if len(e_col) < bins or len(a_col) < bins:
+            skipped_cols += 1
             continue
         if float(np.std(e_col)) < 1e-9 and float(np.std(a_col)) < 1e-9:
             if abs(float(np.mean(e_col)) - float(np.mean(a_col))) < 1e-6:
@@ -119,7 +122,6 @@ def compute_feature_psi(
         edges = np.percentile(e_col, quantiles)
         edges[0] = -np.inf
         edges[-1] = np.inf
-        # Garante bordas estritamente crescentes se houver empates
         unique_edges = np.unique(edges)
         if len(unique_edges) < 3:
             lo = min(float(np.min(e_col)), float(np.min(a_col))) - 1e-3
@@ -135,7 +137,22 @@ def compute_feature_psi(
         psi = float(np.sum((a_pct - e_pct) * np.log(a_pct / e_pct)))
         psi_vals.append(psi)
 
-    return round(float(np.mean(psi_vals)) if psi_vals else 0.0, 4)
+    mean_psi = round(float(np.mean(psi_vals)) if psi_vals else 0.0, 4)
+    return mean_psi, len(psi_vals), skipped_cols
+
+
+def compute_feature_psi(
+    expected: np.ndarray,
+    actual: np.ndarray,
+    bins: int = 10,
+) -> float:
+    """
+    Calcula o Population Stability Index (PSI) médio entre a janela de referência
+    (treino/histórico) e a janela avaliada (últimas 168h), conforme specs/08 §2.
+    """
+    mean_psi, _, _ = _compute_feature_psi_details(expected, actual, bins=bins)
+    return mean_psi
+
 
 
 def build_weekly_evaluation_records(
@@ -350,16 +367,103 @@ def install_d1_retrain_compat() -> None:
 
 
 
+def fetch_d1_to_file(
+    out_path: str = "ml/data/d1_observed.json",
+    env_vars: Optional[Dict[str, str]] = None,
+    post_fn: Optional[Callable[[str, str, Dict[str, Any]], Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """
+    Extrai `observed_pollutants` do Cloudflare D1 via `fetch_observed_from_d1`
+    + `format_d1_observed_payload` e grava em `out_path`.
+    """
+    install_d1_retrain_compat()
+    from ml.training.fetch_from_d1 import fetch_observed_from_d1, format_d1_observed_payload
+
+    env = os.environ if env_vars is None else env_vars
+    account_id = env.get("CLOUDFLARE_ACCOUNT_ID", "")
+    db_id = env.get("D1_DATABASE_ID", "")
+    token = env.get("CLOUDFLARE_API_TOKEN", "")
+    if not (account_id and db_id and token):
+        raise RuntimeError(
+            "Defina CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID e CLOUDFLARE_API_TOKEN para extrair dados do D1."
+        )
+
+    rows = fetch_observed_from_d1(
+        account_id=account_id,
+        database_id=db_id,
+        token=token,
+        post_fn=post_fn,
+    )
+    payload = format_d1_observed_payload(rows)
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    print(f"[AetherML ML] Extração D1 concluída: {len(rows)} linhas salvas em {out_path}.")
+    return payload
+
+
+def _d1_response_ok(resp: Any) -> bool:
+    """Valida tanto o envelope HTTP da Cloudflare quanto `result[0].success` do D1."""
+    if not isinstance(resp, dict) or not resp.get("success"):
+        return False
+    res_list = resp.get("result")
+    if isinstance(res_list, list) and res_list:
+        first = res_list[0]
+        if isinstance(first, dict) and first.get("success") is False:
+            return False
+    return True
+
+
+def _resolve_model_registry_metadata(
+    version: str,
+    now_iso: str,
+    registry_path: str = "models/registry.json",
+) -> Dict[str, Any]:
+    """
+    Extrai metadados e métricas reais de `models/registry.json` para popular a FK
+    `model_registry` sem valores sintéticos falsos.
+    """
+    from ml.training.registry import load_registry
+
+    reg = load_registry(registry_path)
+    active_ver = reg.get("active_version")
+    ver_entry = (reg.get("versions") or {}).get(version) or {}
+    models_map = ver_entry.get("models") or reg.get("models") or {}
+    pm25_meta = models_map.get("pm25") or {}
+    metrics = pm25_meta.get("metrics") or {}
+
+    onnx_file = pm25_meta.get("onnx_file") or "pm25.onnx"
+    topology_file = pm25_meta.get("topology_file") or "pm25.topology.json"
+    sha256 = pm25_meta.get("sha256") or "unknown"
+    created_at = ver_entry.get("created_at") or now_iso
+
+    return {
+        "target_pollutant": "pm25",
+        "architecture": "LightGBM-ONNX",
+        "onnx_file_path": f"models/{version}/{onnx_file}",
+        "onnx_hash_sha256": str(sha256),
+        "saabas_topology_path": f"models/{version}/{topology_file}",
+        "training_start_date": str(created_at),
+        "training_end_date": str(created_at),
+        "test_mae": float(metrics.get("mae", 0.0)),
+        "test_rmse": float(metrics.get("rmse", 0.0)),
+        "test_r2": float(metrics.get("r2", 0.0)),
+        "is_active": 1 if (not active_ver or version == active_ver) else 0,
+    }
+
+
 def persist_weekly_evaluations_to_d1(
     records: List[Dict[str, Any]],
     account_id: str,
     database_id: str,
     token: str,
     post_fn: Optional[Callable[[str, str, Dict[str, Any]], Dict[str, Any]]] = None,
+    registry_path: str = "models/registry.json",
 ) -> int:
     """
     Persiste os registros de `weekly_evaluations` no Cloudflare D1 via HTTP API.
-    Garante antes a linha de `model_registry` para satisfazer a FK `REFERENCES model_registry(version)`.
+    Garante antes a linha de `model_registry` com métricas reais de `models/registry.json`
+    para satisfazer a FK `REFERENCES model_registry(version)`.
     """
     if not records:
         return 0
@@ -373,6 +477,7 @@ def persist_weekly_evaluations_to_d1(
 
     versions = sorted({r["model_version"] for r in records})
     for ver in versions:
+        meta = _resolve_model_registry_metadata(ver, now_iso, registry_path=registry_path)
         reg_sql = (
             "INSERT OR IGNORE INTO model_registry "
             "(version, target_pollutant, architecture, onnx_file_path, onnx_hash_sha256, "
@@ -386,17 +491,17 @@ def persist_weekly_evaluations_to_d1(
                 "sql": reg_sql,
                 "params": [
                     ver,
-                    "ensemble_5p",
-                    "LightGBM-ONNX",
-                    f"models/{ver}/pm25.onnx",
-                    "registry-managed",
-                    f"models/{ver}/pm25.topology.json",
-                    now_iso,
-                    now_iso,
-                    0.0,
-                    0.0,
-                    1.0,
-                    1,
+                    meta["target_pollutant"],
+                    meta["architecture"],
+                    meta["onnx_file_path"],
+                    meta["onnx_hash_sha256"],
+                    meta["saabas_topology_path"],
+                    meta["training_start_date"],
+                    meta["training_end_date"],
+                    meta["test_mae"],
+                    meta["test_rmse"],
+                    meta["test_r2"],
+                    meta["is_active"],
                 ],
             },
         )
@@ -433,7 +538,7 @@ def persist_weekly_evaluations_to_d1(
                 ],
             },
         )
-        if isinstance(resp, dict) and resp.get("success"):
+        if _d1_response_ok(resp):
             saved += 1
 
     return saved
@@ -458,6 +563,7 @@ def run_weekly_evaluation(
     """
     Executa a avaliação semanal (168h) por estação e global (specs/08 §2):
     - Calcula MAE (PM2.5, O3, NO2), acurácia IQAr, false_alarm_rate, missed_event_rate e PSI.
+    - Expõe `psi_computed` e `skipped_points` para distinguir "sem drift" de "PSI não computado".
     - Gera registros compatíveis com `weekly_evaluations` e relatório Markdown se drift/missed.
     """
     install_d1_retrain_compat()
@@ -499,6 +605,8 @@ def run_weekly_evaluation(
     global_cls_p: List[str] = []
     ref_features: List[List[float]] = []
     holdout_features: List[List[float]] = []
+    skipped_ref_points = 0
+    skipped_holdout_points = 0
 
     station_evals: Dict[str, Dict[str, Any]] = {}
 
@@ -533,6 +641,7 @@ def run_weekly_evaluation(
                     row_to_features(m_now, aq_now, times[gi], lags, flags, order=order, lags1=lags1)
                 )
             except Exception:
+                skipped_ref_points += 1
                 continue
 
         st_yt: Dict[str, List[float]] = {t: [] for t in TARGETS}
@@ -544,6 +653,7 @@ def run_weekly_evaluation(
 
         for gi in h_idx:
             if gi < 30:
+                skipped_holdout_points += 1
                 continue
             try:
                 ts = times[gi]
@@ -590,6 +700,7 @@ def run_weekly_evaluation(
                 global_cls_t.append(ct)
                 global_cls_p.append(cp)
             except Exception:
+                skipped_holdout_points += 1
                 continue
 
         if st_iqar_t:
@@ -603,12 +714,36 @@ def run_weekly_evaluation(
     global_eval = evaluate_predictions(
         global_yt, global_yp, global_iqar_t, global_iqar_p, global_cls_t, global_cls_p
     )
-    feature_psi = (
-        compute_feature_psi(np.array(ref_features), np.array(holdout_features))
-        if len(ref_features) >= HOLDOUT_HOURS and len(holdout_features) >= HOLDOUT_HOURS
-        else 0.0
+
+    skipped_points = skipped_ref_points + skipped_holdout_points
+    has_min_psi_window = (
+        len(ref_features) >= HOLDOUT_HOURS and len(holdout_features) >= HOLDOUT_HOURS
     )
-    psi_drift = feature_psi > 0.25
+    if has_min_psi_window:
+        feature_psi, psi_valid_cols, psi_skipped_cols = _compute_feature_psi_details(
+            np.array(ref_features), np.array(holdout_features)
+        )
+        psi_computed = psi_valid_cols > 0
+    else:
+        feature_psi = 0.0
+        psi_valid_cols = 0
+        psi_skipped_cols = 0
+        psi_computed = False
+
+    if not psi_computed:
+        print(
+            f"[AVISO AetherML] PSI não computado (ref_points={len(ref_features)}, "
+            f"holdout_points={len(holdout_features)}, min={HOLDOUT_HOURS}, valid_cols={psi_valid_cols}).",
+            file=sys.stderr,
+        )
+    if skipped_points > 0:
+        print(
+            f"[AVISO AetherML] {skipped_points} pontos pulados na auditoria semanal "
+            f"(ref={skipped_ref_points}, holdout={skipped_holdout_points}).",
+            file=sys.stderr,
+        )
+
+    psi_drift = bool(psi_computed and feature_psi > 0.25)
     retrain_recommended = bool(
         global_eval["drift_detected"] == 1
         or global_eval["missed_event_rate"] > 0.15
@@ -647,6 +782,14 @@ def run_weekly_evaluation(
         "feature_order_version": order,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "feature_psi": feature_psi,
+        "psi_computed": psi_computed,
+        "psi_valid_columns": psi_valid_cols,
+        "psi_skipped_columns": psi_skipped_cols,
+        "ref_points_count": len(ref_features),
+        "holdout_points_count": len(holdout_features),
+        "skipped_points": skipped_points,
+        "skipped_ref_points": skipped_ref_points,
+        "skipped_holdout_points": skipped_holdout_points,
         "retrain_recommended": retrain_recommended,
         "d1_records_saved": d1_saved,
         "global": global_eval,
@@ -786,9 +929,7 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.fetch_d1_only:
-        install_d1_retrain_compat()
-        from ml.training.fetch_from_d1 import fetch_observed_from_d1
-        fetch_observed_from_d1(out_path=args.d1_file)
+        fetch_d1_to_file(out_path=args.d1_file)
         return
 
     if args.retrain:
@@ -820,11 +961,13 @@ def main() -> None:
     print(summary["global"]["report_md"])
     print(
         f"[weekly_eval] semana={summary['week_code']} | versao={summary['model_version']} "
-        f"| PSI={summary['feature_psi']:.4f} | retrain_recommended={summary['retrain_recommended']}"
+        f"| PSI={summary['feature_psi']:.4f} (computed={summary['psi_computed']}, skipped={summary['skipped_points']}) "
+        f"| retrain_recommended={summary['retrain_recommended']}"
     )
 
 
 if __name__ == "__main__":
     main()
+
 
 

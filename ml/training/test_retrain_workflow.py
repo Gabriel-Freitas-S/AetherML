@@ -23,19 +23,27 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 WORKFLOW_PATH = os.path.join(ROOT, ".github", "workflows", "retrain.yml")
 
 
+def _strip_yaml_comments(content: str) -> str:
+    return "\n".join(
+        line for line in content.splitlines() if not line.strip().startswith("#")
+    )
+
+
 def test_retrain_workflow_exists_and_has_triggers():
     assert os.path.exists(WORKFLOW_PATH), f"Workflow ausente: {WORKFLOW_PATH}"
     with open(WORKFLOW_PATH, "r", encoding="utf-8") as f:
-        content = f.read()
+        raw_content = f.read()
+    content = _strip_yaml_comments(raw_content)
 
     assert "schedule:" in content, "retrain.yml deve ter trigger schedule"
     assert "0 6 * * 1" in content, "retrain.yml deve rodar toda segunda às 06:00 UTC ('0 6 * * 1')"
     assert "workflow_dispatch:" in content, "retrain.yml deve ter trigger workflow_dispatch"
+    assert "\n  push:" not in content, "retrain.yml não deve ter trigger push de branch de floor"
 
 
 def test_retrain_workflow_has_cloudflare_env_and_d1_id():
     with open(WORKFLOW_PATH, "r", encoding="utf-8") as f:
-        content = f.read()
+        content = _strip_yaml_comments(f.read())
 
     assert "secrets.CLOUDFLARE_API_TOKEN" in content
     assert "vars.CLOUDFLARE_ACCOUNT_ID" in content
@@ -46,38 +54,45 @@ def test_retrain_workflow_has_cloudflare_env_and_d1_id():
 
 def test_retrain_workflow_pipeline_steps_order():
     with open(WORKFLOW_PATH, "r", encoding="utf-8") as f:
-        content = f.read()
+        content = _strip_yaml_comments(f.read())
 
-    required_steps = [
-        "fetch_from_d1.py",
-        "evaluate_weekly.py",
-        "retrain_real.py",
-        "ml.training.upload_r2",
-        "predict_forecast.py",
-        "eval_holdout.py",
-        "build_comparison.py",
-        "build_forecast_compare.py",
+    required_commands = [
+        "python3 ml/training/fetch_openmeteo.py",
+        "python3 ml/evaluation/evaluate_weekly.py --fetch-d1-only --d1-file ml/data/d1_observed.json",
+        "python3 ml/evaluation/evaluate_weekly.py \\",
+        "python3 ml/evaluation/evaluate_weekly.py --retrain \\",
+        "python3 -m ml.training.upload_r2 upload",
+        "python3 ml/training/predict_forecast.py",
+        "python3 ml/evaluation/eval_holdout.py",
+        "python3 ml/evaluation/build_comparison.py",
+        "python3 ml/evaluation/build_forecast_compare.py",
+        "actions/upload-artifact@v4",
         "pnpm -r build",
         "npx -y wrangler@4 pages deploy apps/web/dist --project-name=aetherml --branch=main --commit-dirty=true",
     ]
-    for step_marker in required_steps:
-        assert step_marker in content, f"Etapa obrigatória ausente em retrain.yml: {step_marker}"
+    for cmd in required_commands:
+        assert cmd in content, f"Comando real obrigatório ausente (fora de comentários) em retrain.yml: {cmd}"
 
-    # Verifica ordem lógica: fetch_from_d1 -> retrain_real -> upload_r2 / artefatos -> deploy
-    idx_fetch = content.index("python3 ml/training/fetch_from_d1.py")
-    idx_retrain = content.index("python3 ml/training/retrain_real.py")
-    idx_upload = content.index("python3 -m ml.training.upload_r2")
+    # Verifica ordem estrita nos comandos reais (sem comentários)
+    idx_fetch = content.index("python3 ml/evaluation/evaluate_weekly.py --fetch-d1-only")
+    idx_eval = content.index("python3 ml/evaluation/evaluate_weekly.py \\")
+    idx_retrain = content.index("python3 ml/evaluation/evaluate_weekly.py --retrain \\")
+    idx_upload = content.index("python3 -m ml.training.upload_r2 upload")
     idx_predict = content.index("python3 ml/training/predict_forecast.py")
+    idx_artifact = content.index("actions/upload-artifact@v4")
+    idx_build = content.index("pnpm -r build")
     idx_deploy = content.index("wrangler@4 pages deploy")
 
-    assert idx_fetch < idx_retrain < idx_upload
-    assert idx_retrain < idx_predict < idx_deploy
+    assert idx_fetch < idx_eval < idx_retrain < idx_upload < idx_predict < idx_artifact < idx_build < idx_deploy
 
 
 def test_retrain_workflow_protects_main_and_active_model_on_branches():
     with open(WORKFLOW_PATH, "r", encoding="utf-8") as f:
-        content = f.read()
+        raw_content = f.read()
+    content = _strip_yaml_comments(raw_content)
 
+    assert "Política de promoção" in raw_content, "Comentário documentando política dry_run/schedule deve existir"
+    assert "default: true" in content, "workflow_dispatch deve ter dry_run com default: true"
     assert "refs/heads/main" in content, (
         "retrain.yml deve proteger upload R2 / commit / deploy Pages contra branches que não sejam refs/heads/main"
     )
@@ -92,3 +107,4 @@ if __name__ == "__main__":
     test_retrain_workflow_pipeline_steps_order()
     test_retrain_workflow_protects_main_and_active_model_on_branches()
     print("[OK] test_retrain_workflow: 4/4 verdes")
+

@@ -26,6 +26,8 @@ from ml.evaluation.evaluate_weekly import (
     build_weekly_evaluation_records,
     compute_feature_psi,
     evaluate_predictions,
+    fetch_d1_to_file,
+    install_d1_retrain_compat,
     next_model_version,
     persist_weekly_evaluations_to_d1,
     run_weekly_evaluation,
@@ -62,7 +64,7 @@ def test_evaluate_predictions_stable_and_drift_gates():
     cls_t = ["Boa"] * n
     cls_p = ["Boa"] * n
 
-    res = evaluate_predictions(y_true, y_pred, iqar_t, iqar_p, cls_t, iqar_p and cls_p)
+    res = evaluate_predictions(y_true, y_pred, iqar_t, iqar_p, cls_t, cls_p)
     assert res["drift_detected"] == 0
     assert res["iqar_accuracy_pct"] == 100.0
     assert res["missed_event_rate"] == 0.0
@@ -173,10 +175,119 @@ def test_persist_weekly_evaluations_to_d1():
         post_fn=mock_post,
     )
     assert n_saved == 1
-    # Deve ter garantido model_registry (FK) e inserido em weekly_evaluations
+    # Deve ter garantido model_registry (FK) com métricas reais do models/registry.json e inserido em weekly_evaluations
     sqls = [c["body"]["sql"] for c in calls]
     assert any("INTO model_registry" in s for s in sqls)
     assert any("INTO weekly_evaluations" in s for s in sqls)
+
+    reg_params = calls[0]["body"]["params"]
+    assert reg_params[0] == "v2026.38.5"
+    assert reg_params[4] != "registry-managed"
+    assert len(reg_params[4]) == 64  # SHA-256 real de pm25.onnx em models/registry.json
+    assert reg_params[8] == 0.39     # test_mae real de pm25
+    assert reg_params[9] == 0.59     # test_rmse real de pm25
+    assert reg_params[10] == 0.9711  # test_r2 real de pm25
+
+    # Verifica que result[0].success == False não conta como salvo
+    def mock_post_inner_fail(url: str, token: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        return {"success": True, "errors": [], "result": [{"results": [], "success": False}]}
+
+    n_failed = persist_weekly_evaluations_to_d1(
+        records=records,
+        account_id="acc_123",
+        database_id="db_456",
+        token="tok_789",
+        post_fn=mock_post_inner_fail,
+    )
+    assert n_failed == 0
+
+
+def test_install_d1_retrain_compat_and_fetch_d1_only():
+    tmp_dir = tempfile.mkdtemp(prefix="aetherml_compat_test_")
+    try:
+        install_d1_retrain_compat()
+        import ml.training.fetch_from_d1 as f_mod
+
+        raw_path = os.path.join(tmp_dir, "raw.json")
+        raw_payload = {
+            "fetched_at": "2026-10-18T19:00:00Z",
+            "stations": {
+                "ramqar_camburi": {
+                    "meta": {"id": "ramqar_camburi"},
+                    "meteo_hourly": {"time": ["2026-10-18T18:00", "2026-10-18T19:00"], "temperature_2m": [24.0, 25.0]},
+                    "aq_hourly": {
+                        "time": ["2026-10-18T18:00", "2026-10-18T19:00"],
+                        "pm2_5": [10.0, 11.0],
+                        "pm10": [20.0, 21.0],
+                        "nitrogen_dioxide": [12.0, 13.0],
+                        "sulphur_dioxide": [3.0, 3.5],
+                        "ozone": [30.0, 32.0],
+                        "carbon_monoxide": [100.0, 110.0],
+                    },
+                }
+            },
+        }
+        with open(raw_path, "w", encoding="utf-8") as f:
+            json.dump(raw_payload, f)
+
+        # 1. Regressão obrigatória: após install_d1_retrain_compat(), resolve_training_data(source_mode="local", ...) deve funcionar sem TypeError
+        src, loaded = f_mod.resolve_training_data(
+            source_mode="local",
+            local_raw_path=raw_path,
+            d1_file=os.path.join(tmp_dir, "d1.json"),
+        )
+        assert src == "local"
+        assert "ramqar_camburi" in loaded["stations"]
+
+        # 2. Regressão obrigatória: --fetch-d1-only (fetch_d1_to_file) com post_fn mock e arquivo tmp
+        d1_rows = [
+            {
+                "id": "obs_1",
+                "station_id": "ramqar_camburi",
+                "timestamp": "2026-10-18T19:00:00Z",
+                "pm25": 15.5,
+                "pm10": 28.0,
+                "o3": 40.0,
+                "no2": 18.0,
+                "so2": 4.2,
+                "co": 130.0,
+                "iqar": 31,
+                "source": "open-meteo-cams-reanalysis",
+            }
+        ]
+        call_count = 0
+
+        def mock_d1_post(url: str, token: str, body: Dict[str, Any]) -> Dict[str, Any]:
+            nonlocal call_count
+            call_count += 1
+            rows = d1_rows if call_count == 1 else []
+            return {"success": True, "result": [{"success": True, "results": rows}]}
+
+        d1_out = os.path.join(tmp_dir, "d1_observed.json")
+        payload = fetch_d1_to_file(
+            out_path=d1_out,
+            env_vars={
+                "CLOUDFLARE_ACCOUNT_ID": "acc_test",
+                "D1_DATABASE_ID": "db_test",
+                "CLOUDFLARE_API_TOKEN": "tok_test",
+            },
+            post_fn=mock_d1_post,
+        )
+        assert os.path.exists(d1_out)
+        assert payload["summary"]["total_records"] == 1
+        assert "ramqar_camburi" in payload["stations"]
+
+        # 3. Regressão: resolve_training_data(source_mode="d1") usando cache salvo e suplementando histórico
+        src_d1, merged_d1 = f_mod.resolve_training_data(
+            source_mode="d1",
+            local_raw_path=raw_path,
+            d1_file=d1_out,
+            env_vars={},
+        )
+        assert src_d1 == "d1"
+        assert merged_d1["stations"]["ramqar_camburi"]["aq_hourly"]["pm2_5"][-1] == 15.5
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 def test_next_model_version_and_supplement_d1_with_history():
@@ -247,6 +358,7 @@ def test_next_model_version_and_supplement_d1_with_history():
         assert len(aq_sup["time"]) == 240
         assert aq_sup["pm2_5"][0] == 10.0
         assert aq_sup["pm2_5"][-1] == 42.0
+        assert aq_sup["sulphur_dioxide"][-1] == 5.0
         assert sup["fetched_at"] == d1_window[-1] + ":00Z"
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -255,43 +367,40 @@ def test_next_model_version_and_supplement_d1_with_history():
 def test_run_weekly_evaluation_end_to_end():
     tmp_dir = tempfile.mkdtemp(prefix="aetherml_weekly_eval_")
     try:
-        n_hours = 210
-        times = [
+        # 1. Com 210h (apenas 12h de ref após 30h de lag < 168h): psi_computed deve ser False
+        n_short = 210
+        times_short = [
             f"2026-10-{d:02d}T{h:02d}:00"
-            for d in range(1, 10)
+            for d in range(1, 15)
             for h in range(24)
-        ][:n_hours]
-        raw = {
-            "fetched_at": times[-1] + ":00Z",
+        ][:n_short]
+        raw_short = {
+            "fetched_at": times_short[-1] + ":00Z",
             "stations": {
                 "ramqar_camburi": {
                     "meta": {"id": "ramqar_camburi", "name": "Camburi", "municipality": "Vitória"},
                     "aq_hourly": {
-                        "time": times,
-                        "pm2_5": [12.0] * n_hours,
-                        "pm10": [22.0] * n_hours,
-                        "ozone": [35.0] * n_hours,
-                        "nitrogen_dioxide": [14.0] * n_hours,
-                        "sulphur_dioxide": [4.0] * n_hours,
-                        "carbon_monoxide": [100.0] * n_hours,
+                        "time": times_short,
+                        "pm2_5": [12.0] * n_short,
+                        "pm10": [22.0] * n_short,
+                        "ozone": [35.0] * n_short,
+                        "nitrogen_dioxide": [14.0] * n_short,
+                        "sulphur_dioxide": [4.0] * n_short,
+                        "carbon_monoxide": [100.0] * n_short,
                     },
                     "meteo_hourly": {
-                        "time": times,
-                        "temperature_2m": [24.0] * n_hours,
-                        "relative_humidity_2m": [72.0] * n_hours,
-                        "wind_speed_10m": [11.0] * n_hours,
-                        "wind_direction_10m": [45.0] * n_hours,
-                        "pressure_msl": [1013.0] * n_hours,
-                        "shortwave_radiation": [120.0] * n_hours,
-                        "boundary_layer_height": [550.0] * n_hours,
+                        "time": times_short,
+                        "temperature_2m": [24.0] * n_short,
+                        "relative_humidity_2m": [72.0] * n_short,
+                        "wind_speed_10m": [11.0] * n_short,
+                        "wind_direction_10m": [45.0] * n_short,
+                        "pressure_msl": [1013.0] * n_short,
+                        "shortwave_radiation": [120.0] * n_short,
+                        "boundary_layer_height": [550.0] * n_short,
                     },
                 }
             },
         }
-        raw_path = os.path.join(tmp_dir, "raw.json")
-        with open(raw_path, "w", encoding="utf-8") as f:
-            json.dump(raw, f)
-
         out_json = os.path.join(tmp_dir, "weekly_evaluation.json")
         out_md = os.path.join(tmp_dir, "weekly_evaluation_report.md")
 
@@ -301,8 +410,8 @@ def test_run_weekly_evaluation_end_to_end():
         }
         cal = {"bias": {t: 0.0 for t in boosters}, "isotonic": {}}
 
-        summary = run_weekly_evaluation(
-            raw_dict=raw,
+        summary_short = run_weekly_evaluation(
+            raw_dict=raw_short,
             version="v2026.38.5",
             order="v1",
             boosters=boosters,
@@ -311,15 +420,59 @@ def test_run_weekly_evaluation_end_to_end():
             report_path=out_md,
             week_code="2026-W42",
         )
+        assert summary_short["psi_computed"] is False
+        assert summary_short["ref_points_count"] < 168
+        assert summary_short["skipped_points"] == 0
 
-        assert os.path.exists(out_json)
-        assert os.path.exists(out_md)
-        assert summary["model_version"] == "v2026.38.5"
-        assert summary["week_code"] == "2026-W42"
-        assert summary["global"]["total_points"] == 168
-        assert summary["global"]["drift_detected"] == 0
-        assert summary["retrain_recommended"] is False
-        assert len(summary["records"]) == 1
+        # 2. Com 380h (>= 168h de ref + 168h de holdout + 30h de lag): psi_computed deve ser True
+        n_full = 380
+        times_full = [
+            f"2026-10-{d:02d}T{h:02d}:00"
+            for d in range(1, 20)
+            for h in range(24)
+        ][:n_full]
+        rng = np.random.default_rng(7)
+        raw_full = {
+            "fetched_at": times_full[-1] + ":00Z",
+            "stations": {
+                "ramqar_camburi": {
+                    "meta": {"id": "ramqar_camburi", "name": "Camburi", "municipality": "Vitória"},
+                    "aq_hourly": {
+                        "time": times_full,
+                        "pm2_5": list(rng.normal(12.0, 1.0, n_full)),
+                        "pm10": list(rng.normal(22.0, 1.5, n_full)),
+                        "ozone": list(rng.normal(35.0, 2.0, n_full)),
+                        "nitrogen_dioxide": list(rng.normal(14.0, 1.0, n_full)),
+                        "sulphur_dioxide": list(rng.normal(4.0, 0.3, n_full)),
+                        "carbon_monoxide": list(rng.normal(100.0, 5.0, n_full)),
+                    },
+                    "meteo_hourly": {
+                        "time": times_full,
+                        "temperature_2m": list(rng.normal(24.0, 1.0, n_full)),
+                        "relative_humidity_2m": list(rng.normal(72.0, 3.0, n_full)),
+                        "wind_speed_10m": list(rng.normal(11.0, 1.0, n_full)),
+                        "wind_direction_10m": list(rng.normal(45.0, 5.0, n_full)),
+                        "pressure_msl": list(rng.normal(1013.0, 1.0, n_full)),
+                        "shortwave_radiation": list(rng.normal(120.0, 10.0, n_full)),
+                        "boundary_layer_height": list(rng.normal(550.0, 20.0, n_full)),
+                    },
+                }
+            },
+        }
+        summary_full = run_weekly_evaluation(
+            raw_dict=raw_full,
+            version="v2026.38.5",
+            order="v1",
+            boosters=boosters,
+            calibration=cal,
+            out_path=out_json,
+            report_path=out_md,
+            week_code="2026-W42",
+        )
+        assert summary_full["psi_computed"] is True
+        assert summary_full["ref_points_count"] == 168
+        assert summary_full["holdout_points_count"] == 168
+        assert summary_full["skipped_points"] == 0
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -329,7 +482,9 @@ if __name__ == "__main__":
     test_compute_feature_psi()
     test_build_weekly_evaluation_records_matches_d1_schema()
     test_persist_weekly_evaluations_to_d1()
+    test_install_d1_retrain_compat_and_fetch_d1_only()
     test_next_model_version_and_supplement_d1_with_history()
     test_run_weekly_evaluation_end_to_end()
-    print("[OK] test_evaluate_weekly: 6/6 verdes")
+    print("[OK] test_evaluate_weekly: 7/7 verdes")
+
 

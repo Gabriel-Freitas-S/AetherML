@@ -9,6 +9,13 @@ name: Weekly Model Retrain Pipeline
 #    - Regenera artefatos estáticos (predict_forecast, eval_holdout, build_comparison, build_forecast_compare)
 #    - Commita na main, faz build web e publica no Cloudflare Pages via wrangler@4.
 
+# Política de promoção (Maestro):
+# - Em `schedule` semanal (`0 6 * * 1` na `main`), a promoção ocorre automaticamente
+#   desde que os gates de não-degradação por poluente (`RMSE_chall <= RMSE_champ * (1 - epsilon)`)
+#   passem — garantindo atualização semanal contínua do modelo em produção.
+# - Em `workflow_dispatch`, `dry_run` tem default `true` (opt-in explícito: passe `-f dry_run=false`
+#   na `main` para promover; qualquer ref fora de `refs/heads/main` roda forçadamente em `--dry-run`).
+
 on:
   schedule:
     # Executa toda segunda-feira às 06:00 UTC
@@ -24,7 +31,7 @@ on:
           - d1
           - local
       dry_run:
-        description: "Executar em modo dry-run (sem promover nem publicar)"
+        description: "Executar em modo dry-run (default true; passe false na main para promover)"
         required: false
         default: true
         type: boolean
@@ -38,12 +45,6 @@ on:
         required: false
         default: "0.0"
         type: string
-  push:
-    branches:
-      - "floor/retreino-semanal"
-    paths:
-      - ".github/workflows/retrain.yml"
-      - "ml/**"
 
 concurrency:
   group: weekly-retrain-${{ github.ref }}
@@ -94,7 +95,6 @@ jobs:
           D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || '55d25065-ebc2-47a4-9fc3-16bbb96ef4ac' }}
         run: |
           if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            # Executa python3 ml/training/fetch_from_d1.py com bridge de compatibilidade urllib
             python3 ml/evaluation/evaluate_weekly.py --fetch-d1-only --d1-file ml/data/d1_observed.json
           else
             echo "::notice::Credenciais Cloudflare D1 ausentes — retrain_real usará fallback explícito."
@@ -143,7 +143,6 @@ jobs:
             echo "::notice::Executando workflow_dispatch em modo seguro (--dry-run default). Passe -f dry_run=false para promover."
             DRY_RUN_FLAG="--dry-run"
           fi
-          # Executa python3 ml/training/retrain_real.py via bridge semanal (D1 168h + GITHUB_OUTPUT)
           python3 ml/evaluation/evaluate_weekly.py --retrain \
             --source "$SOURCE_MODE" \
             --compact \
@@ -151,8 +150,6 @@ jobs:
             --summary-out ml/data/retrain_summary.json \
             $VERSION_ARG \
             $DRY_RUN_FLAG
-
-
 
       - name: Upload promoted ONNX models and manifest to Cloudflare R2
         if: steps.retrain.outputs.promoted == 'true' && github.ref == 'refs/heads/main'
@@ -164,7 +161,6 @@ jobs:
             echo "::notice::CLOUDFLARE_API_TOKEN ausente - upload R2 ignorado."
             exit 0
           fi
-          # Artefatos ONNX já foram exportados por export_onnx.py dentro de retrain_real.py
           python3 -m ml.training.upload_r2 upload
           python3 -m ml.training.upload_r2 verify
 
@@ -186,12 +182,22 @@ jobs:
               --persist-d1
           fi
 
+      - name: Upload weekly evaluation and retrain summary artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-retrain-report-${{ github.run_id }}
+          if-no-files-found: ignore
+          path: |
+            ml/data/weekly_evaluation.json
+            ml/data/weekly_evaluation_report.md
+            ml/data/retrain_summary.json
+
       - name: Commit and push promoted models and artifacts
         if: steps.retrain.outputs.promoted == 'true' && github.ref == 'refs/heads/main'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Remove arquivos temporários de execução antes de commitar
           rm -f ml/data/d1_observed.json ml/data/d1_merged_raw.json ml/data/retrain_summary.json ml/data/weekly_evaluation.json ml/data/weekly_evaluation_report.md
           if [ -n "$(git status --porcelain models/ apps/web/public/models/ apps/web/public/data/ ml/data/openmeteo_raw.json)" ]; then
             git add models/ apps/web/public/models/ apps/web/public/data/ ml/data/openmeteo_raw.json
@@ -203,6 +209,7 @@ jobs:
           fi
 
       - name: Build workspace
+        if: steps.retrain.outputs.promoted == 'true'
         run: pnpm -r build
 
       - name: Deploy to Cloudflare Pages (production)
@@ -216,3 +223,4 @@ jobs:
             exit 0
           fi
           npx -y wrangler@4 pages deploy apps/web/dist --project-name=aetherml --branch=main --commit-dirty=true
+
