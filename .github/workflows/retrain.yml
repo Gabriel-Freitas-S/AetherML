@@ -1,0 +1,214 @@
+name: Weekly Model Retrain Pipeline
+
+# Pipeline semanal de retreino (Champion vs Challenger pareado em holdout comum de 168h):
+# 1. Atualiza meteorologia/CAMS (fetch_openmeteo) + extrai observados do Cloudflare D1 (fetch_from_d1)
+# 2. Executa auditoria semanal de erro/drift/eventos perdidos (evaluate_weekly)
+# 3. Treina Challenger e compara pareado contra o Champion (retrain_real --source d1)
+# 4. Se ao menos um poluente foi promovido (não-degradação):
+#    - Exporta ONNX (<1,5MB, SHA-256) e publica no R2 (ml.training.upload_r2 -> aetherml-models)
+#    - Regenera artefatos estáticos (predict_forecast, eval_holdout, build_comparison, build_forecast_compare)
+#    - Commita na main, faz build web e publica no Cloudflare Pages via wrangler@4.
+
+on:
+  schedule:
+    # Executa toda segunda-feira às 06:00 UTC
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Fonte de dados de poluentes (d1 ou local)"
+        required: false
+        default: "d1"
+        type: choice
+        options:
+          - d1
+          - local
+      dry_run:
+        description: "Executar em modo dry-run (sem promover nem publicar)"
+        required: false
+        default: false
+        type: boolean
+      version:
+        description: "Versão do Challenger (vazio = vAAAA.SS.N automático)"
+        required: false
+        default: ""
+        type: string
+      epsilon:
+        description: "Margem de não-degradação (default 0.0)"
+        required: false
+        default: "0.0"
+        type: string
+  push:
+    branches:
+      - "floor/retreino-semanal"
+    paths:
+      - ".github/workflows/retrain.yml"
+      - "ml/**"
+
+concurrency:
+  group: weekly-retrain-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  D1_DATABASE_ID: 55d25065-ebc2-47a4-9fc3-16bbb96ef4ac
+
+jobs:
+  retrain:
+    name: Weekly Retrain (D1 -> Champion vs Challenger -> R2 -> Pages)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Fetch latest Open-Meteo meteorology and baseline series
+        run: python3 ml/training/fetch_openmeteo.py
+
+      - name: Fetch observed pollutants from Cloudflare D1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || '55d25065-ebc2-47a4-9fc3-16bbb96ef4ac' }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            # Executa python3 ml/training/fetch_from_d1.py com bridge de compatibilidade urllib
+            python3 ml/evaluation/evaluate_weekly.py --fetch-d1-only --d1-file ml/data/d1_observed.json
+          else
+            echo "::notice::Credenciais Cloudflare D1 ausentes — retrain_real usará fallback explícito."
+          fi
+
+      - name: Run weekly evaluation and drift audit (pre-retrain)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || '55d25065-ebc2-47a4-9fc3-16bbb96ef4ac' }}
+        run: |
+          SOURCE_MODE="${{ inputs.source || 'd1' }}"
+          PERSIST_FLAG=""
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ inputs.dry_run }}" != "true" ]; then
+            PERSIST_FLAG="--persist-d1"
+          fi
+          python3 ml/evaluation/evaluate_weekly.py \
+            --source "$SOURCE_MODE" \
+            --out ml/data/weekly_evaluation.json \
+            --report-out ml/data/weekly_evaluation_report.md \
+            $PERSIST_FLAG
+          if [ -f ml/data/weekly_evaluation_report.md ] && [ -n "$GITHUB_STEP_SUMMARY" ]; then
+            cat ml/data/weekly_evaluation_report.md >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Retrain Challenger and evaluate paired against Champion
+        id: retrain
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || '55d25065-ebc2-47a4-9fc3-16bbb96ef4ac' }}
+          OMP_NUM_THREADS: "4"
+        run: |
+          SOURCE_MODE="${{ inputs.source || 'd1' }}"
+          EPSILON="${{ inputs.epsilon || '0.0' }}"
+          VERSION_ARG=""
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION_ARG="--version ${{ inputs.version }}"
+          fi
+          DRY_RUN_FLAG=""
+          if [ "${{ inputs.dry_run }}" = "true" ] || [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::notice::Executando em modo seguro (--dry-run) pois ref=${{ github.ref }} ou dry_run=true."
+            DRY_RUN_FLAG="--dry-run"
+          fi
+          # Executa python3 ml/training/retrain_real.py via bridge semanal (D1 168h + GITHUB_OUTPUT)
+          python3 ml/evaluation/evaluate_weekly.py --retrain \
+            --source "$SOURCE_MODE" \
+            --compact \
+            --epsilon "$EPSILON" \
+            --summary-out ml/data/retrain_summary.json \
+            $VERSION_ARG \
+            $DRY_RUN_FLAG
+
+
+      - name: Upload promoted ONNX models and manifest to Cloudflare R2
+        if: steps.retrain.outputs.promoted == 'true' && github.ref == 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN ausente - upload R2 ignorado."
+            exit 0
+          fi
+          # Artefatos ONNX já foram exportados por export_onnx.py dentro de retrain_real.py
+          python3 -m ml.training.upload_r2 upload
+          python3 -m ml.training.upload_r2 verify
+
+      - name: Regenerate forecast and evaluation artifacts on promotion
+        if: steps.retrain.outputs.promoted == 'true'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || '55d25065-ebc2-47a4-9fc3-16bbb96ef4ac' }}
+        run: |
+          python3 ml/training/predict_forecast.py
+          python3 ml/evaluation/eval_holdout.py
+          python3 ml/evaluation/build_comparison.py
+          python3 ml/evaluation/build_forecast_compare.py
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            python3 ml/evaluation/evaluate_weekly.py \
+              --source "${{ inputs.source || 'd1' }}" \
+              --retrained 1 \
+              --persist-d1
+          fi
+
+      - name: Commit and push promoted models and artifacts
+        if: steps.retrain.outputs.promoted == 'true' && github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Remove arquivos temporários de execução antes de commitar
+          rm -f ml/data/d1_observed.json ml/data/d1_merged_raw.json ml/data/retrain_summary.json ml/data/weekly_evaluation.json ml/data/weekly_evaluation_report.md
+          if [ -n "$(git status --porcelain models/ apps/web/public/models/ apps/web/public/data/ ml/data/openmeteo_raw.json)" ]; then
+            git add models/ apps/web/public/models/ apps/web/public/data/ ml/data/openmeteo_raw.json
+            git commit -m "chore(ml): retreino semanal ${{ steps.retrain.outputs.active_version }} (${{ steps.retrain.outputs.promoted_targets }})"
+            git pull --rebase --autostash
+            git push
+          else
+            echo "Nenhuma alteração para commitar."
+          fi
+
+      - name: Build workspace
+        run: pnpm -r build
+
+      - name: Deploy to Cloudflare Pages (production)
+        if: steps.retrain.outputs.promoted == 'true' && github.ref == 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN ausente - deploy ignorado."
+            exit 0
+          fi
+          npx -y wrangler@4 pages deploy apps/web/dist --project-name=aetherml --branch=main --commit-dirty=true
