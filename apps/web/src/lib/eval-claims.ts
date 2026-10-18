@@ -183,3 +183,18 @@ export function formatClassAccuracy(value: number | null | undefined): string {
 	if (!isNum(value)) return DASH;
 	return `${(value * 100).toFixed(1)}%`;
 }
+
+/**
+ * Diagnóstico de R² para o PM2.5, condicional ao limiar de 0.75 (BUG-10).
+ *
+ * Se R² < 0.75: alerta que a variação ainda está abaixo do real.
+ * Se R² >= 0.75: diagnóstico positivo de boa correlação e aderência à dinâmica real.
+ * Se nulo/ausente: devolve null.
+ */
+export function pm25R2Diagnosis(r2: number | null | undefined): string | null {
+	if (!isNum(r2)) return null;
+	if (r2 < 0.75) {
+		return `R² do PM2.5 ainda baixo (${r2}): o modelo acerta o nível médio, mas varia menos que o real — próximo ganho virá de dados de tráfego/satélite reais.`;
+	}
+	return `R² do PM2.5 elevado (${r2}): boa aderência à dinâmica e variabilidade da série de referência CAMS.`;
+}

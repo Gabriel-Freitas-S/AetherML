@@ -47,6 +47,15 @@ export interface DayCardsResult {
 	hasFuture: boolean;
 	/** Verdadeiro quando não existe nenhum ponto no futuro: a série é só histórico. */
 	isStale: boolean;
+	/** Ponto de referência atual: último ponto <= now; se não existir, o PRIMEIRO ponto (início da previsão). */
+	referenceTimestamp: string | null;
+	referenceMs: number | null;
+	/** Fim da série (horizonte final). */
+	horizonTimestamp: string | null;
+	horizonMs: number | null;
+	/** Primeiro ponto da série. */
+	startTimestamp: string | null;
+	/** Mantido por compatibilidade: equivale ao fim da série (horizonTimestamp). */
 	newestTimestamp: string | null;
 	newestMs: number | null;
 }
@@ -103,6 +112,28 @@ export function formatObservedAt(timestamp: string): string {
 		hourCycle: "h23",
 	});
 	return `${partValue(parts, "day")}/${partValue(parts, "month")} ${partValue(parts, "hour")}:${partValue(parts, "minute")}`;
+}
+
+/** "13:00" no fuso da rede. */
+export function formatTimeOnly(timestamp: string): string {
+	const parts = partsIn(new Date(timestamp), {
+		hour: "2-digit",
+		minute: "2-digit",
+		hourCycle: "h23",
+	});
+	return `${partValue(parts, "hour")}:${partValue(parts, "minute")}`;
+}
+
+/** "13:00 (em 45 min)" / "13:00 (agora mesmo)" / "13:00 (há 10 min)" no fuso da rede. */
+export function formatForecastStart(
+	timestamp: string,
+	now: Date = new Date(),
+): string {
+	const ms = Date.parse(timestamp);
+	if (Number.isNaN(ms)) return "";
+	const timeStr = formatTimeOnly(timestamp);
+	const ageText = formatAge(now.getTime() - ms);
+	return `${timeStr} (${ageText})`;
 }
 
 /** Rótulo do eixo X do SVG. Usa NBSP porque <text> SVG descarta espaço comum. */
@@ -177,7 +208,7 @@ export interface StaleNotice {
 export function formatStaleNotice(age: DataAge): StaleNotice {
 	return {
 		title: "Dados desatualizados",
-		body: `A série mais recente disponível é de ${age.observedAt} (${age.ageText}). As horas abaixo são histórico observado, não previsão.`,
+		body: `A série mais recente disponível é de ${age.observedAt} (${age.ageText}). As horas abaixo são histórico do modelo, não previsão.`,
 	};
 }
 
@@ -199,17 +230,30 @@ export function buildFiveDayCards(
 
 	const groups = new Map<string, DayPoint[]>();
 	let newestMs: number | null = null;
+	let earliestMs: number | null = null;
+	let lastPastMs: number | null = null;
 	let hasFuture = false;
 	for (const p of points) {
 		const ms = Date.parse(p.timestamp);
 		if (Number.isNaN(ms)) continue;
 		if (newestMs === null || ms > newestMs) newestMs = ms;
+		if (earliestMs === null || ms < earliestMs) earliestMs = ms;
+		if (ms <= nowMs && (lastPastMs === null || ms > lastPastMs)) {
+			lastPastMs = ms;
+		}
 		if (ms >= nowMs) hasFuture = true;
 		const key = getLocalDateStr(new Date(ms));
 		const bucket = groups.get(key);
 		if (bucket) bucket.push(p);
 		else groups.set(key, [p]);
 	}
+
+	const refMs = lastPastMs ?? earliestMs;
+	const refIso = refMs === null ? null : new Date(refMs).toISOString();
+	const horizonIso =
+		newestMs === null ? null : new Date(newestMs).toISOString();
+	const startIso =
+		earliestMs === null ? null : new Date(earliestMs).toISOString();
 
 	const cards = Array.from(groups.keys())
 		.sort()
@@ -232,10 +276,9 @@ export function buildFiveDayCards(
 				isForecast: dayPoints.some((p) => Date.parse(p.timestamp) >= nowMs),
 				maxIqar,
 				avgIqar,
-				// A faixa vem da MESMA estatística que o card exibe como número
-				// (avgIqar). Derivá-la do pico fazia o card ler "43 · Moderada" com
-				// uma faixa ("Ruim") calculada a partir de um pico de 59.
-				classification: classifyIndex(avgIqar),
+				// A faixa vem do pior índice horário (pico) do dia, conforme
+				// recomendação da auditoria (BUG-12) e diretrizes de saúde pública.
+				classification: classifyIndex(maxIqar),
 				// `primary` acompanha a linha "Pico {maxIqar}", logo é o do pico.
 				primary: String(peakPoint.primary).toUpperCase(),
 			};
@@ -245,8 +288,12 @@ export function buildFiveDayCards(
 		cards,
 		hasFuture,
 		isStale: points.length > 0 && !hasFuture,
-		newestTimestamp:
-			newestMs === null ? null : new Date(newestMs).toISOString(),
+		referenceTimestamp: refIso,
+		referenceMs: refMs,
+		horizonTimestamp: horizonIso,
+		horizonMs: newestMs,
+		startTimestamp: startIso,
+		newestTimestamp: horizonIso,
 		newestMs,
 	};
 }

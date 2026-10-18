@@ -12,7 +12,9 @@ import type { DataAge } from "../src/lib/forecast-days.ts";
 import {
 	buildProvenance,
 	describeOrigin,
+	estimateLine,
 	freshnessOf,
+	getLeadLine,
 } from "../src/lib/provenance.ts";
 import type { DataOrigin, Freshness } from "../src/lib/provenance.ts";
 
@@ -135,28 +137,40 @@ test("buildProvenance: dado velho vira role=alert e amber, com o aviso canônico
 
 // ─── buildProvenance: série inteira no futuro ────────────────────────────
 
-test("buildProvenance: série no futuro avisa que o IQAr do topo NÃO é a hora atual", () => {
+test("buildProvenance: série no futuro é previsão normal (não é erro nem histórico) (BUG-07)", () => {
+	const now = new Date("2026-10-18T12:00:00Z");
+	const startFuture = "2026-10-18T13:00:00Z";
+	const horizonFuture = "2026-10-23T12:00:00Z";
+
 	const p = buildProvenance({
 		origin: "ml",
 		age: age({
-			observedAt: "05/10 14:00",
-			ageMs: -259_200_000,
-			ageText: "em 3 dias",
+			observedAt: "18/10 10:00",
+			ageMs: -3600000,
+			ageText: "em 1 h",
 		}),
 		isStale: false,
 		isFallback: true,
+		startTimestamp: startFuture,
+		horizonTimestamp: horizonFuture,
+		now,
 	});
 
 	assert.equal(p.freshness, "ahead");
-	assert.equal(p.role, "alert");
-	assert.ok(
-		p.warnings.some((w) => w.includes("05/10 14:00") && /não/i.test(w)),
-		"o aviso nomeia o primeiro ponto e diz que ele não é 'agora'",
+	assert.equal(p.role, null, "previsão normal não ocupa role alert");
+	assert.equal(p.isAlert, false, "previsão no futuro não é erro");
+	assert.equal(p.tone, "neutral", "previsão normal tem tom neutro");
+	assert.equal(p.headline, "Dados em dia");
+	assert.deepEqual(
+		p.warnings,
+		[],
+		"previsão no futuro não emite avisos de erro",
 	);
-	assert.ok(
-		!p.warnings.some((w) => w === formatStaleNotice(age()).body),
-		"'ahead' não pode reusar o texto de 'velho': são afirmações opostas sobre a série",
-	);
+
+	// Linhas da tira: Início da previsão (HH:MM (em X min)) e Horizonte até (DD/MM HH:MM)
+	assert.equal(rowValue(p.rows, "Origem"), describeOrigin("ml").label);
+	assert.equal(rowValue(p.rows, "Início da previsão"), "10:00 (em 1 h)");
+	assert.equal(rowValue(p.rows, "Horizonte até"), "23/10 09:00");
 });
 
 // ─── buildProvenance: origem não-ML é sempre declarada ───────────────────
@@ -183,7 +197,7 @@ test("buildProvenance: qualquer série que não seja do modelo carrega aviso exp
 	}
 });
 
-test("buildProvenance: origem não-ML no estado 'ahead' someia os dois avisos, sem perder nenhum", () => {
+test("buildProvenance: origem não-ML no estado 'ahead' declara explicitamente a origem e role=alert", () => {
 	const p = buildProvenance({
 		origin: "open-meteo",
 		age: age({ observedAt: "05/10 14:00" }),
@@ -193,11 +207,130 @@ test("buildProvenance: origem não-ML no estado 'ahead' someia os dois avisos, s
 
 	assert.equal(p.role, "alert");
 	assert.equal(p.tone, "amber");
-	assert.ok(
-		p.warnings.length >= 2,
-		"proveniência E atualidade são dois fatos distintos",
-	);
+	assert.ok(p.warnings.length >= 1, "declaração de origem externa");
 	assert.equal(rowValue(p.rows, "Origem"), describeOrigin("open-meteo").label);
+});
+
+test("BUG-08: unificação de redação impede que frases contraditórias coexistam", () => {
+	// 1. Previsão normal (série no futuro)
+	const pForecast = buildProvenance({
+		origin: "ml",
+		age: age({ observedAt: "18/10 13:00", ageText: "em 1 h" }),
+		isStale: false,
+		isFallback: true,
+		startTimestamp: "2026-10-18T13:00:00Z",
+		horizonTimestamp: "2026-10-23T12:00:00Z",
+	});
+	const leadForecast = getLeadLine({
+		freshness: pForecast.freshness,
+		stationName: "Camburi",
+		pointsCount: 120,
+		observedAt: "18/10 13:00",
+		ageText: "em 1 h",
+		origin: "ml",
+	});
+
+	// Não pode conter alegação de histórico nem erro
+	assert.doesNotMatch(pForecast.origin.detail, /histórico/i);
+	assert.doesNotMatch(leadForecast, /histórico/i);
+	assert.equal(
+		pForecast.isAlert,
+		false,
+		"previsão no futuro é o estado normal, não erro",
+	);
+	assert.equal(pForecast.tone, "neutral");
+	for (const w of pForecast.warnings) {
+		assert.doesNotMatch(w, /histórico/i);
+		assert.doesNotMatch(w, /observado/i);
+	}
+
+	// 2. Série esgotada (histórico do modelo)
+	const pStale = buildProvenance({
+		origin: "ml",
+		age: age({ observedAt: "02/10 03:00", ageText: "há 8 dias" }),
+		isStale: true,
+		isFallback: false,
+	});
+	const leadStale = getLeadLine({
+		freshness: pStale.freshness,
+		stationName: "Camburi",
+		pointsCount: 120,
+		observedAt: "02/10 03:00",
+		ageText: "há 8 dias",
+		origin: "ml",
+	});
+
+	// Afirma histórico do modelo, NUNCA "observado" e NUNCA "previsão" contraditória
+	assert.match(pStale.origin.detail, /histórico do modelo/i);
+	assert.doesNotMatch(pStale.origin.detail, /previstas pelo modelo/i);
+	assert.match(leadStale, /histórico do modelo, não previsão/i);
+	assert.doesNotMatch(leadStale, /observado/i);
+	for (const w of pStale.warnings) {
+		assert.doesNotMatch(w, /histórico observado/i);
+	}
+
+	// 3. Fallback Open-Meteo
+	const pFallback = buildProvenance({
+		origin: "open-meteo",
+		age: age(),
+		isStale: false,
+		isFallback: false,
+	});
+	const leadFallback = getLeadLine({
+		freshness: pFallback.freshness,
+		stationName: "Camburi",
+		pointsCount: 120,
+		origin: "open-meteo",
+	});
+	assert.match(pFallback.origin.detail, /não é saída do LightGBM/i);
+	assert.match(leadFallback, /não é saída do modelo/i);
+});
+
+test("estimateLine: condicionado à origem ativa (modelo ML vs Open-Meteo)", () => {
+	// Origem ML
+	const mlEstimate = estimateLine("ml");
+	assert.match(mlEstimate, /valores horários do modelo/i);
+	assert.match(mlEstimate, /CONAMA 491/i);
+
+	// Fallback Open-Meteo: não pode afirmar ser do modelo
+	const omEstimate = estimateLine("open-meteo");
+	assert.match(omEstimate, /valores horários da API Open-Meteo/i);
+	assert.doesNotMatch(omEstimate, /do modelo/i);
+	assert.match(omEstimate, /CONAMA 491/i);
+
+	// Default sem origem
+	assert.match(estimateLine(), /valores horários do modelo/i);
+	assert.match(estimateLine(null), /valores horários do modelo/i);
+
+	// Origem genérica / desconhecida
+	const unkEstimate = estimateLine("unknown" as any);
+	assert.match(unkEstimate, /valores horários;/i);
+	assert.doesNotMatch(unkEstimate, /do modelo/i);
+	assert.doesNotMatch(unkEstimate, /Open-Meteo/i);
+});
+
+test("getLeadLine: defensivo à origem em stale e sem contagem enganosa em open-meteo", () => {
+	// Stale com Open-Meteo não pode dizer "histórico do modelo"
+	const staleOm = getLeadLine({
+		freshness: "stale",
+		stationName: "Camburi",
+		pointsCount: 120,
+		observedAt: "02/10 03:00",
+		ageText: "há 8 dias",
+		origin: "open-meteo",
+	});
+	assert.doesNotMatch(staleOm, /histórico do modelo/i);
+	assert.match(staleOm, /Open-Meteo/i);
+
+	// Open-Meteo não diz "próximas N h" (que contaria horas passadas)
+	const omLead = getLeadLine({
+		freshness: "live",
+		stationName: "Camburi",
+		pointsCount: 120,
+		origin: "open-meteo",
+	});
+	assert.doesNotMatch(omLead, /próximas 120 h/i);
+	assert.match(omLead, /120 h de dados/i);
 });
 
 test("buildProvenance: sem dado nenhum a tira diz '—' em vez de mentir com vazio", () => {
