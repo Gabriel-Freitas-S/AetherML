@@ -57,9 +57,9 @@ const saabasExample = [
 const {
 	cards: fiveDaysForecast,
 	isStale,
-	newestTimestamp,
+	referenceTimestamp,
 } = buildFiveDayCards(points as any);
-const dataAge = describeDataAge(newestTimestamp);
+const dataAge = describeDataAge(referenceTimestamp);
 const staleNotice = formatStaleNotice(dataAge);
 
 function badgeClass(cls?: string): string {
@@ -149,6 +149,7 @@ function iqarIcon(cls?: string): string {
           <span>{currentPoint.classification}</span>
         </span>
         <div class="text-slate-500 text-[11px] mt-1">Crítico: {currentPoint.primary.toUpperCase()}</div>
+        <div class="text-slate-400 text-[9px] mt-0.5 uppercase tracking-wider font-semibold">Estimativa horária (CONAMA 491 exige médias móveis 24h/8h)</div>
       </div>
     </div>
   </div>
@@ -166,7 +167,7 @@ function iqarIcon(cls?: string): string {
     <div class="mb-2.5 flex items-center justify-between">
       <h2 class="text-sm font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-sky-500"></span>
-        {isStale ? "Série Observada por Dia" : "Prognóstico de 5 Dias (120 Horas Contínuas)"}
+        {isStale ? "Histórico do Modelo por Dia" : "Prognóstico de 5 Dias (120 Horas Contínuas)"}
       </h2>
       <span class="text-xs text-slate-500 font-mono">
         {dataAge.observedAt ? `Dados até ${dataAge.observedAt} (${dataAge.ageText})` : "Resolução Horária CONAMA 491"}

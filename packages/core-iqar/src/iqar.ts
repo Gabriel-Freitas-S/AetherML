@@ -113,3 +113,97 @@ export const ADVICE: Record<string, string> = {
 	Péssima:
 		"Toda a população: permaneça em ambientes internos; risco sanitário grave.",
 };
+
+/**
+ * Janelas regulatórias de média móvel conforme a Resolução CONAMA 491/2018:
+ * - PM2.5: 24 horas
+ * - PM10: 24 horas
+ * - SO2: 24 horas
+ * - O3: 8 horas
+ * - NO2: 1 hora
+ */
+export const REGULATORY_WINDOWS: Record<Pollutant, number> = {
+	pm25: 24,
+	pm10: 24,
+	so2: 24,
+	o3: 8,
+	no2: 1,
+};
+
+/**
+ * Calcula a média móvel regulatória para um poluente a partir de uma série horária (ou janela final).
+ * Janela incompleta ou com valores inválidos DEVE retornar null (nunca zero silencioso).
+ */
+export function calculateRegulatoryMovingAverage(
+	pollutant: Pollutant,
+	hourlySeries: number[],
+): number | null {
+	const windowSize = REGULATORY_WINDOWS[pollutant];
+	if (!hourlySeries || hourlySeries.length < windowSize) {
+		return null;
+	}
+	const windowSlice = hourlySeries.slice(-windowSize);
+	let sum = 0;
+	for (const val of windowSlice) {
+		if (typeof val !== "number" || !Number.isFinite(val) || val < 0) {
+			return null;
+		}
+		sum += val;
+	}
+	return sum / windowSize;
+}
+
+/**
+ * Calcula o vetor contínuo de médias móveis regulatórias para uma série horária completa.
+ * Índices anteriores ao tamanho da janela recebem null.
+ */
+export function calculatePollutantMovingAverages(
+	pollutant: Pollutant,
+	hourlySeries: number[],
+): (number | null)[] {
+	const windowSize = REGULATORY_WINDOWS[pollutant];
+	const result: (number | null)[] = [];
+	for (let i = 0; i < hourlySeries.length; i++) {
+		if (i + 1 < windowSize) {
+			result.push(null);
+		} else {
+			const slice = hourlySeries.slice(i + 1 - windowSize, i + 1);
+			result.push(calculateRegulatoryMovingAverage(pollutant, slice));
+		}
+	}
+	return result;
+}
+
+/**
+ * Calcula o IQAr consolidado a partir das médias móveis regulatórias calculadas.
+ * Se nenhuma média estiver disponível (por janela incompleta), retorna null.
+ */
+export function calculateRegulatoryIQAr(
+	movingAverages: Partial<Record<Pollutant, number | null | undefined>>,
+): {
+	iqar: number;
+	classification: Classification;
+	primary: Pollutant;
+} | null {
+	let best: Pollutant | null = null;
+	let bestIdx = -1;
+	let bestCls: Classification = "Boa";
+
+	for (const p of Object.keys(TABLE) as Pollutant[]) {
+		const val = movingAverages[p];
+		if (val !== null && val !== undefined && Number.isFinite(val) && val >= 0) {
+			const { index, classification } = individualIndex(p, val);
+			if (index > bestIdx) {
+				bestIdx = index;
+				best = p;
+				bestCls = classification;
+			}
+		}
+	}
+
+	if (best === null || bestIdx < 0) {
+		return null;
+	}
+
+	return { iqar: bestIdx, classification: bestCls, primary: best };
+}
