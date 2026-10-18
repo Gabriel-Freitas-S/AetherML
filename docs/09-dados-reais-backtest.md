@@ -14,6 +14,12 @@ Como os números exibidos no app são produzidos, de onde vêm os dados e qual o
 
 > Histórico: até a v2026.38.1 o dataset era **sintético** (`random.gauss`, seed 42). Sintomas: SO₂ com R² = −1,27 e O₃ com R² = 0,99 (decorou a fórmula). Tudo foi substituído a partir da v2026.38.2.
 
+### 1.1 Circularidade CAMS (BUG-05): o que o backtest mede e o que não mede
+
+- **Alvo e features do mesmo produto:** O alvo atual é o produto regional CAMS via Open-Meteo (~0,4°), e as features de lag de poluente (1h e 24h) derivam do mesmo produto CAMS. As métricas em holdout medem correção, advecção meteorológica e continuidade sobre o CAMS — não previsão de rua.
+- **Baselines e skill score no artefato:** Para honestidade metodológica frente a R² inflados pela circularidade, o artefato publica baselines de persistência trivial (`lag1` e `lag24`) para todos os 5 poluentes e IQAr, acompanhados de `skill_vs_persistence` ($1 - \text{MAE}_{\text{modelo}}/\text{MAE}_{\text{baseline}}$).
+- **Caminho MOS com ground truth *in-situ*:** A validação contra medição física requer dados de estação em solo (já preparados na coluna `source`, migration `db/migrations/0002_observed_source.sql`, sentinela `IEMA`). Com dados de estações, o modelo transiciona para corretor de viés local MOS (*Model Output Statistics*), onde $X$ = CAMS + meteo e $Y$ = medição física de estação.
+
 ---
 
 ## 2. Recursos de engenharia que importam
@@ -42,15 +48,16 @@ Experimentos descartados no mesmo holdout (registrados para não repetir): isoto
 ## 4. Protocolo do backtest (página Precisão IA)
 
 1. **Holdout:** últimas 168h de passado, 9 estações, nunca vistas no treino.
-2. **1 passo:** prevê cada hora com lags reais → MAE/RMSE/R²/MAPE/viés por poluente + acerto de faixa + baseline de persistência ("ontem = hoje").
+2. **1 passo:** prevê cada hora com lags reais → MAE/RMSE/R²/MAPE/viés por poluente + acerto de faixa + baselines de persistência (lag1 e lag24 em todos os poluentes + IQAr) e skill score.
 3. **Rollout 120h:** a partir da última hora de treino, recursivo com meteorologia real futura → MAE em +24/+48/+72/+120h (mede a degradação operacional).
-4. **Reprodutível:** `python ml/training/fetch_openmeteo.py` → `build_real_dataset.py` → `retrain_real.py` → `predict_forecast.py` → `ml/evaluation/eval_holdout.py`. Artefato: `apps/web/public/data/model-eval.json`.
+4. **Reprodutível:** `python ml/training/fetch_openmeteo.py` → `build_real_dataset.py` → `retrain_real.py` → `predict_forecast.py` → `ml/evaluation/eval_holdout.py`. Artefato: `apps/web/public/data/model-eval.json` (contém `metrics`, `persistence_baselines`, `skill_vs_persistence`, `iqar_persistence_baselines`, `provenance` e `persistence_baseline_pm25`).
 
 ---
 
 ## 5. Limites conhecidos
 
 - CAMS é modelo regional (~0,4°), não medição de rua: estações vizinhas recebem valores próximos.
+- Gap *in-situ* e circularidade: o alvo é produto de grade e as features de lag também; a leitura do **skill score** (`skill_vs_persistence`) contra os baselines de persistência é obrigatória para interpretar o ganho real antes da integração de dados físicos locais.
 - O rollout degrada com o horizonte (+48h tem pico de erro no O₃ vespertino) — use a **faixa**, não o número, além de 72h.
 - PM2.5 ainda varia menos que o real em eventos extremos; o próximo salto depende de tráfego/satélite ao vivo.
 - Re-treino é manual hoje (scripts acima); o cron de ingestion + avaliação semanal (`ml/evaluation/evaluate_weekly.py`) é o caminho para automatizar.
