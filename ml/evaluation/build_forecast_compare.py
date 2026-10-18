@@ -31,6 +31,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -225,6 +226,13 @@ def summarize(stations: list) -> dict:
     }
 
 
+def _to_posix_path(p: str) -> str:
+    if not p:
+        return ""
+    p_norm = str(p).replace("\\", "/")
+    return Path(p_norm).as_posix() if p_norm else ""
+
+
 def build_payload(
     stations: list,
     *,
@@ -283,6 +291,14 @@ def build_payload(
         clean["pollutants"] = poll
         rounded.append(clean)
     stations = rounded
+    raw_file_posix = _to_posix_path(raw_file)
+    s_ml = str(source_ml) if source_ml is not None else ""
+    if " (" in s_ml:
+        src_path_part, src_annot = s_ml.rsplit(" (", 1)
+        clean_path = _to_posix_path(src_path_part)
+        source_ml_posix = f"{clean_path} ({src_annot}" if clean_path else f"({src_annot}"
+    else:
+        source_ml_posix = _to_posix_path(s_ml)
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": generated_at,
@@ -292,9 +308,9 @@ def build_payload(
         "validation_note": validation_note,
         "window": {"from": window_from, "to": window_to, "hours": window_hours},
         "source": {
-            "ml": source_ml,
+            "ml": source_ml_posix,
             "api": source_api,
-            "raw_file": raw_file,
+            "raw_file": raw_file_posix,
             "raw_fetched_at": raw_fetched_at,
         },
         "caveats": list(caveats),
@@ -305,12 +321,12 @@ def build_payload(
 
 def build_forecast_compare(
     raw_path: str = "ml/data/openmeteo_raw.json",
-    forecast_path: str = os.path.join(
+    forecast_path: str = Path(
         "apps", "web", "public", "data", "stations-data.json"
-    ),
-    out_path: str = os.path.join(
+    ).as_posix(),
+    out_path: str = Path(
         "apps", "web", "public", "data", "forecast-compare.json"
-    ),
+    ).as_posix(),
     version: str | None = None,
     order: str | None = None,
     registry_path: str = REGISTRY_PATH,
@@ -350,9 +366,9 @@ def build_forecast_compare(
         window_hours=len(stations[0]["timestamps"]),
         raw_fetched_at=raw.get("fetched_at") or "",
         generated_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        source_ml=f"{forecast_path} (LightGBM, calibrado)",
+        source_ml=f"{Path(forecast_path).as_posix()} (LightGBM, calibrado)",
         source_api="Open-Meteo air-quality API (CAMS)",
-        raw_file=raw_path,
+        raw_file=Path(raw_path).as_posix(),
         validation_note=VALIDATION_NOTE,
         caveats=no2_caveats(cal, stations) + [coverage_gap_caveat(stations)],
     )
@@ -367,7 +383,7 @@ if __name__ == "__main__":
     ver = sys.argv[1] if len(sys.argv) > 1 else None
     ordr = sys.argv[2] if len(sys.argv) > 2 else None
     payload = build_forecast_compare(version=ver, order=ordr)
-    out_path = os.path.join("apps", "web", "public", "data", "forecast-compare.json")
+    out_path = Path("apps", "web", "public", "data", "forecast-compare.json").as_posix()
     win = payload["window"]
     print(
         f"[fc-compare] {payload['model_version']} ({payload['feature_order_version']}) "
