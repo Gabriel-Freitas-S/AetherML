@@ -3,13 +3,15 @@
 // ---------------------------------------------------------------------------
 // O QUE ESTE WORKER GRAVA (leia antes de "simplificar")
 // ---------------------------------------------------------------------------
-// Open-Meteo CAMS é REANÁLISE/PREVISÃO DE MODELO, NÃO leitura de estação. O
-// modelo LightGBM do projeto foi TREINADO contra valores CAMS (ver
-// ml/training/fetch_openmeteo.py), portanto gravar CAMS em `observed_pollutants`
-// e depois retreinar contra esta tabela seria CIRCULAR. É por isso que o
-// pipeline de retreino lê o Open-Meteo direto pelo caminho Python e NÃO lê esta
-// tabela. Consequência prática: `source` é SEMPRE explícito e nunca 'IEMA'.
-// Migration 0002_observed_source.sql adicionou a coluna justamente anulável e sem
+// Open-Meteo CAMS é REANÁLISE/PREVISÃO DE MODELO, NÃO leitura de estação.
+// Pós-BUG-03, o pipeline de retreino (`ml/training/fetch_from_d1.py`,
+// `retrain_real --source d1`) LÊ `observed_pollutants` do D1 separando
+// explicitamente observações in-situ (`source = 'IEMA'`) de produtos de modelo
+// (`open-meteo-cams-*`). Enquanto não houver série in-situ oficial no D1, o
+// alvo continua sendo `Y = CAMS` (mantendo a limitação circular documentada até
+// a entrada do MOS com `source = 'IEMA'` — ver `specs/08 §2`). Consequência
+// prática: `source` é SEMPRE explícito e nunca `'IEMA'` aqui. Migration
+// 0002_observed_source.sql adicionou a coluna justamente anulável e sem
 // DEFAULT, para obrigar cada write path a declarar a origem.
 //
 // O IQAr NÃO é recalculado aqui. `globalIQAr`/`classifyIndex` vêm do pacote
@@ -27,13 +29,15 @@
 // por um specifier de pacote sem antes adicionar a dep exigiria copiar as
 // fórmulas. Ver "follow-up" no relatório.
 import {
+	type Pollutant,
 	classifyIndex,
 	globalIQAr,
-	type Pollutant,
 } from "../../../packages/core-iqar/src/iqar.ts";
 
 export interface Env {
 	DB: D1Database;
+	/** Token opcional para autenticar `POST /ingest` via header `X-Ingest-Token`. */
+	INGEST_TOKEN?: string;
 }
 
 // --- Contrato com o Open-Meteo (espelha ml/training/fetch_openmeteo.py) -------
@@ -90,6 +94,9 @@ const IQAR_INPUT: readonly Pollutant[] = ["pm25", "pm10", "o3", "no2", "so2"];
  * reescrever história a cada hora. Deve caber em `past_days * 24`.
  */
 export const LOOKBACK_HOURS = 3;
+
+/** Limite superior de dias para backfill manual via `POST /ingest?days=N`. */
+export const MAX_BACKFILL_DAYS = 30;
 
 const HOUR_MS = 3_600_000;
 
@@ -155,7 +162,10 @@ export function dayStart(now: Date): string {
 }
 
 /** Janela inclusiva de `hours` horas terminando na hora cheia de `now`. */
-export function hourWindow(now: Date, hours: number): { from: string; to: string } {
+export function hourWindow(
+	now: Date,
+	hours: number,
+): { from: string; to: string } {
 	// Ancorar pelo instante absoluto, nunca por `Date.parse(hourFloor(...))`: uma
 	// string sem offset é interpretada como hora LOCAL pelo spec, o que deslocaria
 	// a janela em -03 (fuso do Brasil) e gravaria as horas erradas.
@@ -248,7 +258,10 @@ export function observedRowFrom(
 	// IQAr só existe se os 5 poluentes da CONAMA estão presentes. Faltando um, o
 	// índice fica NULL: computá-lo com um 0 inventado publicaria "Boa" num dado
 	// que não mede poluição.
-	const concs = { pm25, pm10, o3, no2, so2 } as Record<Pollutant, number | null>;
+	const concs = { pm25, pm10, o3, no2, so2 } as Record<
+		Pollutant,
+		number | null
+	>;
 	const complete = IQAR_INPUT.every((p) => concs[p] !== null);
 	const iqar = complete ? globalIQAr(concs as Record<Pollutant, number>) : null;
 
@@ -264,7 +277,10 @@ export function observedRowFrom(
 		iqarIndex: iqar?.iqar ?? null,
 		iqarClassification: iqar ? classifyIndex(iqar.iqar) : null,
 		primaryPollutant: iqar?.primary ?? null,
-		source: timestamp < analysisCutoff ? CAMPS_ANALYSIS_SOURCE : CAMPS_FORECAST_SOURCE,
+		source:
+			timestamp < analysisCutoff
+				? CAMPS_ANALYSIS_SOURCE
+				: CAMPS_FORECAST_SOURCE,
 	};
 }
 
@@ -324,20 +340,58 @@ export interface Station {
 	longitude: number;
 }
 
+export interface OpenMeteoUrlOptions {
+	pastDays?: number;
+	forecastDays?: number;
+}
+
 /** Mesma construção de query do Python: latitude, longitude, timezone=UTC, hourly. */
 export function buildOpenMeteoUrl(
 	base: string,
 	hourly: string,
 	station: { lat: number; lon: number },
+	opts: OpenMeteoUrlOptions = {},
 ): string {
+	const pastDays = opts.pastDays ?? PAST_DAYS;
+	const forecastDays = opts.forecastDays ?? FORECAST_DAYS;
 	const url = new URL(base);
 	url.searchParams.set("latitude", String(station.lat));
 	url.searchParams.set("longitude", String(station.lon));
 	url.searchParams.set("timezone", "UTC");
 	url.searchParams.set("hourly", hourly);
-	url.searchParams.set("past_days", String(PAST_DAYS));
-	url.searchParams.set("forecast_days", String(FORECAST_DAYS));
+	url.searchParams.set("past_days", String(pastDays));
+	url.searchParams.set("forecast_days", String(forecastDays));
 	return url.toString();
+}
+
+export type BackfillDaysParseResult =
+	| { ok: true; days: number | undefined }
+	| { ok: false; error: string };
+
+/**
+ * Valida o parâmetro `?days=N` do disparo manual (`POST /ingest?days=N`).
+ * Ausente (`null`/`undefined`) mantém o modo horário padrão (`LOOKBACK_HOURS`).
+ */
+export function parseBackfillDays(
+	raw: string | null | undefined,
+): BackfillDaysParseResult {
+	if (raw === null || raw === undefined) {
+		return { ok: true, days: undefined };
+	}
+	if (!/^\d+$/.test(raw)) {
+		return {
+			ok: false,
+			error: `Parâmetro 'days' inválido (${JSON.stringify(raw)}): deve ser inteiro entre 1 e ${MAX_BACKFILL_DAYS}.`,
+		};
+	}
+	const days = Number(raw);
+	if (!Number.isInteger(days) || days < 1 || days > MAX_BACKFILL_DAYS) {
+		return {
+			ok: false,
+			error: `Parâmetro 'days' fora do limite (${days}): permitido entre 1 e ${MAX_BACKFILL_DAYS}.`,
+		};
+	}
+	return { ok: true, days };
 }
 
 /**
@@ -345,7 +399,11 @@ export function buildOpenMeteoUrl(
  * shape inesperado é reportado com o que foi recebido — nunca normalizado à
  * força, porque `pm2_5: "não sou lista"` normalizado vira lixo silencioso.
  */
-function readHourly(payload: unknown, vars: string[], label: string): OpenMeteoHourly {
+function readHourly(
+	payload: unknown,
+	vars: string[],
+	label: string,
+): OpenMeteoHourly {
 	const hourly = (payload as { hourly?: unknown } | null)?.hourly;
 	const time = (hourly as { time?: unknown } | null)?.time;
 	if (!Array.isArray(time)) {
@@ -379,8 +437,14 @@ async function fetchHourly(
 	vars: string,
 	station: Station,
 	label: string,
+	urlOpts: OpenMeteoUrlOptions = {},
 ): Promise<OpenMeteoHourly> {
-	const url = buildOpenMeteoUrl(base, vars, { lat: station.latitude, lon: station.longitude });
+	const url = buildOpenMeteoUrl(
+		base,
+		vars,
+		{ lat: station.latitude, lon: station.longitude },
+		urlOpts,
+	);
 	const res = await doFetch(url, { headers: { "User-Agent": "AetherML/1.0" } });
 	if (!res.ok) {
 		// Corpo curto e verbatim: o motivo da recusa do Open-Meteo está nele.
@@ -395,6 +459,8 @@ async function fetchHourly(
 export interface IngestOptions {
 	/** Injetável para teste determinístico. Default: agora. */
 	now?: Date;
+	/** Backfill manual em dias (1..MAX_BACKFILL_DAYS): ajusta past_days=days e lookbackHours=days*24. */
+	days?: number;
 	lookbackHours?: number;
 	fetchImpl?: typeof fetch;
 	log?: (msg: string) => void;
@@ -425,6 +491,7 @@ async function ingestStation(
 	analysisCutoff: string,
 	doFetch: typeof fetch,
 	logError: (msg: string) => void,
+	urlOpts: OpenMeteoUrlOptions,
 ): Promise<StationReport> {
 	try {
 		const aq = await fetchHourly(
@@ -433,6 +500,7 @@ async function ingestStation(
 			AQ_VARS,
 			station,
 			`${station.id} cams`,
+			urlOpts,
 		);
 		const met = await fetchHourly(
 			doFetch,
@@ -440,6 +508,7 @@ async function ingestStation(
 			METEO_VARS,
 			station,
 			`${station.id} meteo`,
+			urlOpts,
 		);
 
 		const observed: ObservedRow[] = [];
@@ -457,50 +526,52 @@ async function ingestStation(
 		}
 
 		if (observed.length === 0 && features.length === 0) {
-			return { stationId: station.id, ok: true, observedRows: 0, featureRows: 0, error: null };
+			return {
+				stationId: station.id,
+				ok: true,
+				observedRows: 0,
+				featureRows: 0,
+				error: null,
+			};
 		}
 
 		// `batch` do D1 roda tudo numa transação: ou a estação entra inteira,
 		// ou nada. É o que impede uma tabela meio escrita após falha parcial.
 		await env.DB.batch([
 			...observed.map((r) =>
-				env.DB
-					.prepare(buildObservedUpsert())
-					.bind(
-						crypto.randomUUID(),
-						r.stationId,
-						r.timestamp,
-						r.pm25,
-						r.pm10,
-						r.so2,
-						r.no2,
-						r.o3,
-						r.co,
-						r.iqarIndex,
-						r.iqarClassification,
-						r.primaryPollutant,
-						r.source,
-					),
+				env.DB.prepare(buildObservedUpsert()).bind(
+					crypto.randomUUID(),
+					r.stationId,
+					r.timestamp,
+					r.pm25,
+					r.pm10,
+					r.so2,
+					r.no2,
+					r.o3,
+					r.co,
+					r.iqarIndex,
+					r.iqarClassification,
+					r.primaryPollutant,
+					r.source,
+				),
 			),
 			...features.map((r) =>
-				env.DB
-					.prepare(buildFeaturesUpsert())
-					.bind(
-						crypto.randomUUID(),
-						r.stationId,
-						r.timestamp,
-						r.temperature,
-						r.relativeHumidity,
-						r.windSpeed,
-						r.windDirection,
-						r.windU,
-						r.windV,
-						r.boundaryLayerHeight,
-						r.surfacePressure,
-						r.solarRadiation,
-						r.isForecast,
-						r.source,
-					),
+				env.DB.prepare(buildFeaturesUpsert()).bind(
+					crypto.randomUUID(),
+					r.stationId,
+					r.timestamp,
+					r.temperature,
+					r.relativeHumidity,
+					r.windSpeed,
+					r.windDirection,
+					r.windU,
+					r.windV,
+					r.boundaryLayerHeight,
+					r.surfacePressure,
+					r.solarRadiation,
+					r.isForecast,
+					r.source,
+				),
 			),
 		]);
 
@@ -531,9 +602,28 @@ async function ingestStation(
 	}
 }
 
-export async function ingest(env: Env, opts: IngestOptions = {}): Promise<IngestReport> {
+export async function ingest(
+	env: Env,
+	opts: IngestOptions = {},
+): Promise<IngestReport> {
+	if (opts.days !== undefined) {
+		if (
+			!Number.isInteger(opts.days) ||
+			opts.days < 1 ||
+			opts.days > MAX_BACKFILL_DAYS
+		) {
+			throw new Error(
+				`Parâmetro 'days' inválido (${opts.days}): deve ser inteiro entre 1 e ${MAX_BACKFILL_DAYS}.`,
+			);
+		}
+	}
 	const now = opts.now ?? new Date();
-	const window = hourWindow(now, opts.lookbackHours ?? LOOKBACK_HOURS);
+	const pastDays = opts.days ?? PAST_DAYS;
+	const forecastDays = FORECAST_DAYS;
+	const lookbackHours =
+		opts.lookbackHours ??
+		(opts.days !== undefined ? opts.days * 24 : LOOKBACK_HOURS);
+	const window = hourWindow(now, lookbackHours);
 	const analysisCutoff = dayStart(now);
 	const doFetch = opts.fetchImpl ?? fetch;
 	const log = opts.log ?? ((m: string) => console.log(m));
@@ -547,11 +637,16 @@ export async function ingest(env: Env, opts: IngestOptions = {}): Promise<Ingest
 	const stations: Station[] = stationRows ?? [];
 
 	log(
-		`[ingest] janela ${window.from}..${window.to} UTC · ${stations.length} estações ativas · fonte=${CAMPS_ANALYSIS_SOURCE}|${CAMPS_FORECAST_SOURCE}`,
+		`[ingest] janela ${window.from}..${window.to} UTC · past_days=${pastDays} · ${stations.length} estações ativas · fonte=${CAMPS_ANALYSIS_SOURCE}|${CAMPS_FORECAST_SOURCE}`,
 	);
 
 	const perStation = await Promise.all(
-		stations.map((s) => ingestStation(env, s, window, analysisCutoff, doFetch, logError)),
+		stations.map((s) =>
+			ingestStation(env, s, window, analysisCutoff, doFetch, logError, {
+				pastDays,
+				forecastDays,
+			}),
+		),
 	);
 
 	const failed = perStation.filter((s) => !s.ok);
@@ -576,12 +671,55 @@ export async function ingest(env: Env, opts: IngestOptions = {}): Promise<Ingest
 
 export default {
 	async fetch(req: Request, env: Env): Promise<Response> {
-		// Disparo manual para reprocessar uma janela sem esperar o cron.
+		// Disparo manual para reprocessar uma janela (ou backfill ?days=N) sem esperar o cron.
 		const url = new URL(req.url);
 		if (url.pathname !== "/ingest") {
 			return new Response("ingestion worker — POST /ingest", { status: 404 });
 		}
+		if (req.method !== "POST") {
+			return new Response(
+				JSON.stringify(
+					{ error: "Método não permitido; use POST /ingest." },
+					null,
+					2,
+				),
+				{
+					status: 405,
+					headers: { "content-type": "application/json", allow: "POST" },
+				},
+			);
+		}
+		if (
+			env.INGEST_TOKEN !== undefined &&
+			(env.INGEST_TOKEN === "" ||
+				req.headers.get("X-Ingest-Token") !== env.INGEST_TOKEN)
+		) {
+			return new Response(
+				JSON.stringify(
+					{
+						error: "Não autorizado: header X-Ingest-Token ausente ou inválido.",
+					},
+					null,
+					2,
+				),
+				{
+					status: 401,
+					headers: { "content-type": "application/json" },
+				},
+			);
+		}
+		const parsedDays = parseBackfillDays(url.searchParams.get("days"));
+		if (!parsedDays.ok) {
+			return new Response(
+				JSON.stringify({ error: parsedDays.error }, null, 2),
+				{
+					status: 400,
+					headers: { "content-type": "application/json" },
+				},
+			);
+		}
 		const report = await ingest(env, {
+			days: parsedDays.days,
 			log: (m) => console.log(m),
 			logError: (m) => console.error(m),
 		});

@@ -56,10 +56,20 @@ test("freshnessOf: stale ganha de ahead quando os dois flags vêm true (série v
 
 // ─── describeOrigin: origem desconhecida NUNCA se declara ML ──────────────
 
-test("describeOrigin: ml é a única origem que se declara saída do modelo", () => {
+test("describeOrigin: ml é a única origem que se declara saída do modelo e explicita CAMS regional + meteo local + MOS in-situ", () => {
 	const ml = describeOrigin("ml");
 	assert.equal(ml.isMl, true);
 	assert.match(ml.label, /ML|modelo/i, "o rótulo declara o modelo");
+	assert.match(
+		ml.detail,
+		/CAMS.*meteo|previsão regional CAMS/i,
+		"o detalhe deve explicitar previsão regional CAMS + correção meteorológica local",
+	);
+	assert.match(
+		ml.detail,
+		/in-situ.*MOS|MOS/i,
+		"o detalhe deve explicitar que a diferenciação por estação virá com in-situ (MOS)",
+	);
 });
 
 test("describeOrigin: open-meteo declara explicitamente que não é o modelo", () => {

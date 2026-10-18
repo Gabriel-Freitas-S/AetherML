@@ -439,6 +439,97 @@ def test_fallback_to_local_when_d1_unconfigured():
     assert "stations" in data_dict
 
 
+def test_default_http_post_urllib_transport():
+    from unittest.mock import patch, MagicMock
+    from ml.training.fetch_from_d1 import default_http_post
+
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps({"success": True, "result": []}).encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.__exit__.return_value = False
+
+    with patch("urllib.request.urlopen", return_value=mock_resp) as mocked_open:
+        res = default_http_post("https://api.cloudflare.com/test", "secret_token", {"sql": "SELECT 1"})
+        assert res["success"] is True
+        assert mocked_open.called
+
+
+def test_merge_d1_separates_insitu_iema_from_cams_and_prioritizes_iema():
+    raw_meteo = {
+        "source": "openmeteo",
+        "fetched_at": "2026-07-02T03:00:00Z",
+        "stations": {
+            "ramqar_camburi": {
+                "meta": {"id": "ramqar_camburi", "municipality": "Vitória"},
+                "meteo_hourly": {
+                    "time": ["2026-07-02T00:00", "2026-07-02T01:00", "2026-07-02T02:00"],
+                    "temperature_2m": [22.0, 22.5, 23.0],
+                },
+                "aq_hourly": {
+                    "time": ["2026-07-02T00:00", "2026-07-02T01:00", "2026-07-02T02:00"],
+                    "pm2_5": [8.0, 8.5, 9.0],
+                },
+            }
+        },
+    }
+    d1_payload = {
+        "summary": {"total_records": 3, "extracted_at": "2026-07-02T02:00:00Z"},
+        "stations": {
+            "ramqar_camburi": {
+                "records_count": 3,
+                "series": [
+                    {
+                        "timestamp": "2026-07-02T00:00:00Z",
+                        "pm25": 11.5,
+                        "pm10": 21.0,
+                        "o3": 16.0,
+                        "no2": 7.0,
+                        "so2": 3.0,
+                        "co": 150.0,
+                        "source": "open-meteo-cams-reanalysis",
+                    },
+                    # No timestamp 01:00 há tanto CAMS quanto IEMA; IEMA deve vencer
+                    {
+                        "timestamp": "2026-07-02T01:00:00Z",
+                        "pm25": 19.5,
+                        "pm10": 35.0,
+                        "o3": 28.0,
+                        "no2": 14.0,
+                        "so2": 5.5,
+                        "co": 180.0,
+                        "source": "IEMA",
+                    },
+                    {
+                        "timestamp": "2026-07-02T01:00:00Z",
+                        "pm25": 8.5,
+                        "pm10": 18.0,
+                        "o3": 19.0,
+                        "no2": 8.0,
+                        "so2": 3.5,
+                        "co": 160.0,
+                        "source": "open-meteo-cams-forecast",
+                    },
+                ],
+            }
+        },
+    }
+
+    merged = merge_d1_with_meteo(raw_meteo, d1_payload)
+    st = merged["stations"]["ramqar_camburi"]
+    # IEMA deve vencer no empate de timestamp em 01:00
+    assert st["aq_hourly"]["pm2_5"] == [11.5, 19.5]
+    # cams_aq_hourly e cams_meteo_hourly preservam a grade CAMS/meteo completa para X no MOS
+    assert st["cams_aq_hourly"]["pm2_5"] == [8.0, 8.5, 9.0]
+    assert st["cams_meteo_hourly"]["temperature_2m"] == [22.0, 22.5, 23.0]
+    # insitu_hourly contém estritamente registros com source == 'IEMA'
+    assert list(st["insitu_hourly"].keys()) == ["2026-07-02T01:00"]
+    assert st["insitu_hourly"]["2026-07-02T01:00"]["pm25"] == 19.5
+    assert st["insitu_hourly"]["2026-07-02T01:00"]["source"] == "IEMA"
+    assert merged["provenance"]["target_mode"] == "mos_insitu"
+    assert merged["provenance"]["insitu_stations"] == ["ramqar_camburi"]
+    assert merged["provenance"]["insitu_records_count"] == 1
+
+
 if __name__ == "__main__":
     test_build_d1_query_url()
     test_pagination_and_transport_keyset()
@@ -450,4 +541,6 @@ if __name__ == "__main__":
     test_reused_cache_emits_warning_with_age()
     test_d1_required_raises_on_failure()
     test_fallback_to_local_when_d1_unconfigured()
-    print("[OK] test_fetch_from_d1: 10/10 verdes")
+    test_default_http_post_urllib_transport()
+    test_merge_d1_separates_insitu_iema_from_cams_and_prioritizes_iema()
+    print("[OK] test_fetch_from_d1: 12/12 verdes")

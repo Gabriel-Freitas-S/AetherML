@@ -12,6 +12,8 @@ Fornece transporte injetável para testes sem rede e merge puro com meteorologia
 import os
 import sys
 import json
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Callable, Tuple
 
@@ -191,30 +193,51 @@ def merge_d1_with_meteo(raw_openmeteo: Dict[str, Any], d1_data: Dict[str, Any]) 
     """
     Função pura testável: junta a meteorologia horária de raw_openmeteo (meteo_hourly)
     com a série observada de poluentes do D1 (d1_data), alinhando por timestamp.
-    Preserva a estrutura consumida por build_real_dataset.
+    Preserva a estrutura consumida por build_real_dataset e adiciona suporte a MOS:
+    - `insitu_hourly`: mapa por timestamp normalizado contendo ESTRITAMENTE registros
+      com `source == 'IEMA'` (observação real em estação), para uso como alvo Y no MOS.
+    - `cams_aq_hourly` e `cams_meteo_hourly`: grade contínua original do Open-Meteo/CAMS
+      para fornecer as features X (lags de 24h, lags de 1h, satélite e meteorologia) no MOS
+      e evitar perda de janela de lag quando o D1 possui histórico curto.
+    - Em empates de timestamp entre `IEMA` e `open-meteo-cams-*`, prioriza `IEMA`.
     Registra e avisa sobre proveniência mista (estações mantidas do local).
     """
     merged_stations: Dict[str, Any] = {}
     d1_stations = d1_data.get("stations", {})
     retained_local_stations: List[str] = []
     d1_matched_stations: List[str] = []
+    insitu_stations: List[str] = []
+    insitu_records_count = 0
 
     for station_id, entry in raw_openmeteo.get("stations", {}).items():
         meta = entry.get("meta", {})
         meteo_hourly = entry.get("meteo_hourly", {})
+        cams_aq_hourly = entry.get("aq_hourly", {})
         meteo_times = meteo_hourly.get("time", [])
 
         st_d1 = d1_stations.get(station_id)
         if not st_d1:
             # Estação sem dados no D1: preserva original e anota proveniência
-            merged_stations[station_id] = entry
+            merged_stations[station_id] = {
+                **entry,
+                "cams_meteo_hourly": meteo_hourly,
+                "cams_aq_hourly": cams_aq_hourly,
+                "insitu_hourly": {},
+            }
             retained_local_stations.append(station_id)
             continue
 
         d1_by_ts: Dict[str, Dict[str, Any]] = {}
+        insitu_by_ts: Dict[str, Dict[str, Any]] = {}
         for item in st_d1.get("series", []):
             k = _norm_ts(item.get("timestamp", ""))
-            d1_by_ts[k] = item
+            if not k:
+                continue
+            if item.get("source") == "IEMA":
+                insitu_by_ts[k] = item
+                d1_by_ts[k] = item
+            elif k not in insitu_by_ts:
+                d1_by_ts[k] = item
 
         # Alinha horários presentes em ambos
         aligned_times: List[str] = []
@@ -225,9 +248,12 @@ def merge_d1_with_meteo(raw_openmeteo: Dict[str, Any], d1_data: Dict[str, Any]) 
         aligned_no2: List[Optional[float]] = []
         aligned_so2: List[Optional[float]] = []
         aligned_co: List[Optional[float]] = []
+        aligned_insitu: Dict[str, Dict[str, Any]] = {}
 
         for idx, t_str in enumerate(meteo_times):
             norm_k = _norm_ts(t_str)
+            if norm_k in insitu_by_ts:
+                aligned_insitu[norm_k] = insitu_by_ts[norm_k]
             if norm_k in d1_by_ts:
                 obs = d1_by_ts[norm_k]
                 aligned_times.append(t_str)
@@ -241,11 +267,19 @@ def merge_d1_with_meteo(raw_openmeteo: Dict[str, Any], d1_data: Dict[str, Any]) 
 
         if not aligned_times:
             # Sem sobreposição: preserva original
-            merged_stations[station_id] = entry
+            merged_stations[station_id] = {
+                **entry,
+                "cams_meteo_hourly": meteo_hourly,
+                "cams_aq_hourly": cams_aq_hourly,
+                "insitu_hourly": {},
+            }
             retained_local_stations.append(station_id)
             continue
 
         d1_matched_stations.append(station_id)
+        if aligned_insitu:
+            insitu_stations.append(station_id)
+            insitu_records_count += len(aligned_insitu)
 
         # Filtra meteo_hourly para os índices alinhados
         aligned_meteo: Dict[str, Any] = {"time": aligned_times}
@@ -267,6 +301,9 @@ def merge_d1_with_meteo(raw_openmeteo: Dict[str, Any], d1_data: Dict[str, Any]) 
             "meta": meta,
             "meteo_hourly": aligned_meteo,
             "aq_hourly": aligned_aq,
+            "cams_meteo_hourly": meteo_hourly,
+            "cams_aq_hourly": cams_aq_hourly,
+            "insitu_hourly": aligned_insitu,
         }
 
     if retained_local_stations:
@@ -275,12 +312,20 @@ def merge_d1_with_meteo(raw_openmeteo: Dict[str, Any], d1_data: Dict[str, Any]) 
             f"(ausentes no D1): {retained_local_stations}"
         )
 
+    target_mode = "mos_insitu" if insitu_records_count > 0 else "cams_fallback"
     return {
-        "source": "d1 (observed_pollutants) + open-meteo (meteo_hourly)",
+        "source": (
+            "d1 (IEMA in-situ Y) + open-meteo (CAMS + meteo X) [MOS]"
+            if target_mode == "mos_insitu"
+            else "d1 (observed_pollutants) + open-meteo (meteo_hourly)"
+        ),
         "fetched_at": raw_openmeteo.get("fetched_at", ""),
         "provenance": {
             "d1_stations": d1_matched_stations,
             "local_fallback_stations": retained_local_stations,
+            "insitu_stations": insitu_stations,
+            "insitu_records_count": insitu_records_count,
+            "target_mode": target_mode,
         },
         "stations": merged_stations,
     }

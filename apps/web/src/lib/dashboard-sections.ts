@@ -181,9 +181,11 @@ export function moveConfrontoSubtab(
  * `null` quando o poluente não está no bloco `observed` ou o valor não é número
  * finito. `null` nunca vira 0: 0 µg/m³ é uma leitura, "sem dado" não é.
  *
- * Não há jitter, offset por estação nem arredondamento para manufacture
- * variação espacial. O contraste de ~0,7 µg/m³ entre estações existe no modelo e
- * a job é mostrar o número que existe.
+ * Não há jitter, offset por estação nem arredondamento para fabricar
+ * variação espacial: a previsão atual reflete a grade regional CAMS (~40 km,
+ * idêntica nas 8 estações centrais da RMGV) + correção local de meteo (7 curvas
+ * distintas para 9 estações; MAD de PM₂,₅ <= ~0,3 µg/m³). A diferenciação real
+ * por estação virá com o treino in-situ (MOS).
  */
 export function dominantConcentration(
 	observed: Record<string, unknown> | null | undefined,
