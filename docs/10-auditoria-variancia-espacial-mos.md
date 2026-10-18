@@ -1,9 +1,9 @@
-# 10 — Auditoria Numérica de Variância Espacial e Preparação MOS (In-Situ)
+# 10 — Auditoria Numérica de Variância Espacial e Plano MOS In-Situ (IEMA-ES)
 
 Este documento consolida:
 1. A **auditoria numérica reproduzível** da variância espacial entre as 9 estações RAMQAr na RMGV (`ml/evaluation/audit_spatial_variance.py`);
-2. A **arquitetura de treino MOS (*Model Output Statistics*)** implementada em `ml/training/fetch_from_d1.py`, `ml/training/build_real_dataset.py` e `ml/training/evaluate_champion.py`;
-3. O **passo a passo operacional (runbook)** para ativar a calibração por estação assim que a fonte *in-situ* (`source='IEMA'`) for entregue no Cloudflare D1.
+2. A **proposta de mapeamento canônico `db/seed.sql` ↔ `EMQAr RGV1..RGV9`** (baseada na validação da Sonda em `docs/research/fontes-insitu.md`, commit `9156284`, aguardando aprovação do Maestro antes de alterar dados);
+3. A **divisão arquitetural do MOS** em **(a) Dataset MOS ($X/Y$)**, **(b) Treino + Avaliação com Backtest In-Situ** e **(c) Escopo Worker / Web**.
 
 ---
 
@@ -11,13 +11,13 @@ Este documento consolida:
 
 ```bash
 # Relatório em Markdown (padrão)
-PYTHONPATH=. python ml/evaluation/audit_spatial_variance.py
+PYTHONPATH=. /home/gabrielfs/.venvs/aetherml/bin/python ml/evaluation/audit_spatial_variance.py
 
 # Saída estruturada em JSON
-PYTHONPATH=. python ml/evaluation/audit_spatial_variance.py --json
+PYTHONPATH=. /home/gabrielfs/.venvs/aetherml/bin/python ml/evaluation/audit_spatial_variance.py --json
 
 # Testes automatizados da auditoria
-PYTHONPATH=. python ml/evaluation/test_audit_spatial_variance.py
+PYTHONPATH=. /home/gabrielfs/.venvs/aetherml/bin/python ml/evaluation/test_audit_spatial_variance.py
 ```
 
 ---
@@ -28,7 +28,7 @@ PYTHONPATH=. python ml/evaluation/test_audit_spatial_variance.py
 - **Estações**: 9 estações RAMQAr cadastradas, com **9/9 pares `(latitude, longitude)` distintos** (zero coordenadas duplicadas).
 - **Menor distância par-a-par**: **2,13 km** (`ramqar_enseada_sua` ↔ `ramqar_paul`).
 - **Maior distância par-a-par**: **26,142 km** (`ramqar_serra_jacupemba` ↔ `ramqar_vila_velha_fundo`).
-- **Conclusão**: a baixa diferenciação espacial **não** decorre de erro no cadastro de coordenadas (`db/seed.sql`), mas da resolução espacial da reanálise/previsão atmosférica CAMS global (~0,4° ≈ 40 km).
+- **Conclusão**: a baixa diferenciação espacial **não** decorre de duplicação no seed, mas da resolução espacial da grade CAMS global (~0,4° ≈ 40 km).
 
 ### 2.2 Série Bruta `ml/data/openmeteo_raw.json` (2.352 horas × 9 estações)
 
@@ -55,7 +55,7 @@ PYTHONPATH=. python ml/evaluation/test_audit_spatial_variance.py
 | `shortwave_radiation` | **5/9** | **5/9** | 960 | `9.7503 W/m²` | `394.0000 W/m²` |
 | `boundary_layer_height` | **5/9** | **5/9** | 336 | `67.3069 m` | `1560.0000 m` |
 
-- Na janela de previsão de 120h (e em todas as variáveis exceto `temperature_2m` no arquivo histórico com correção de altitude DEM), as 9 estações colapsam em **5 células meteorológicas**:
+- Na janela de previsão de 120h, as 9 estações colapsam em **5 células meteorológicas**:
   1. **Cluster Meteo A (idêntico)**: `ramqar_camburi == ramqar_enseada_sua == ramqar_paul`
   2. **Cluster Meteo B (idêntico)**: `ramqar_vitoria_centro == ramqar_ibes == ramqar_vila_velha_fundo`
   3. `ramqar_cariacica`
@@ -71,69 +71,59 @@ PYTHONPATH=. python ml/evaluation/test_audit_spatial_variance.py
 | `no2` | **7/9** | `0.3230 µg/m³` | `0.997483` | **7/9** | `4.0827 µg/m³` |
 | `so2` | **7/9** | `0.2786 µg/m³` | `0.993246` | **7/9** | `5.8566 µg/m³` |
 
-- Dentro do **Cluster Meteo A**, `ramqar_enseada_sua` possui `bridge_proximity: True` (que multiplica o proxy determinístico de tráfego em `build_real_dataset.py:traffic_proxy`), enquanto `ramqar_camburi` e `ramqar_paul` têm ambos `bridge_proximity: False, traffic_heavy: False`. Como recebem exatamente o mesmo vetor de 30 features em todas as horas, **`ramqar_camburi == ramqar_paul` (`MAD = 0.0000`)**.
-- Dentro do **Cluster Meteo B**, `ramqar_vitoria_centro` possui `traffic_heavy: True`, enquanto `ramqar_ibes` e `ramqar_vila_velha_fundo` têm ambos `bridge_proximity: False, traffic_heavy: False`. Logo, **`ramqar_ibes == ramqar_vila_velha_fundo` (`MAD = 0.0000`)**.
-- No snapshot inicial de `stations-data.json` (`step=0`), todas as 9 estações apresentam **`IQAr = 40` (Boa, O₃)** e **`no2 = 3.0 µg/m³`** (cravado no piso operacional `CLAMPS["no2"] = 3.0`).
+- No **Cluster A**, `ramqar_enseada_sua` tem `bridge_proximity: True`, enquanto `ramqar_camburi` e `ramqar_paul` têm ambos `bridge_proximity: False, traffic_heavy: False` $\implies$ **`ramqar_camburi == ramqar_paul` (`MAD = 0.0000`)**.
+- No **Cluster B**, `ramqar_vitoria_centro` tem `traffic_heavy: True`, enquanto `ramqar_ibes` e `ramqar_vila_velha_fundo` têm ambos `bridge_proximity: False, traffic_heavy: False` $\implies$ **`ramqar_ibes == ramqar_vila_velha_fundo` (`MAD = 0.0000`)**.
 
 ---
 
-## 3. Arquitetura MOS Preparada (`Y = IEMA`, `X = CAMS + meteo`)
+## 3. Proposta de Decisão para `db/seed.sql` (Para Aprovação do Maestro)
 
-Para resolver a causa raiz sem inventar offsets estáticos por estação, o pipeline de treinamento foi preparado para operar como **Model Output Statistics (MOS)** assim que houver medições reais das estações na tabela `observed_pollutants` com `source = 'IEMA'`:
+A convenção do projeto fixa os 9 IDs `ramqar_*`. Cruzando com as 8 estações ativas nas planilhas horárias 2024–2026 do IEMA (`EMQAr - RGV1..RGV6, RGV8, RGV9`), propomos a seguinte decisão canônica (sem alterar `db/seed.sql` até aprovação do Maestro):
 
-1. **Separação Estrita de Fontes no Merge (`ml/training/fetch_from_d1.py:merge_d1_with_meteo`)**:
-   - Extrai todos os registros de `observed_pollutants` do D1 e separa explicitamente `source == 'IEMA'` no dicionário por estação `insitu_hourly` (indexado por timestamp normalizado `YYYY-MM-DDTHH:MM`).
-   - Em empates de timestamp entre `IEMA` e `open-meteo-cams-*`, prioriza sempre `IEMA`.
-   - Preserva integralmente a grade contínua de 92 dias do Open-Meteo/CAMS em `cams_aq_hourly` e `cams_meteo_hourly`, garantindo que o buffer de lags de 30h (`t-24`, `t-1` e média móvel de 6h de `pblh`) nunca seja truncado mesmo quando o D1 possui janelas curtas ou falhas de sensor.
-   - Anota em `provenance`:
-     - `target_mode`: `"mos_insitu"` (quando `insitu_records_count > 0`) ou `"cams_fallback"` (quando `insitu_records_count == 0`).
-     - `insitu_stations` e `insitu_records_count`.
-
-2. **Construção do Dataset MOS (`ml/training/build_real_dataset.py:build_real_dataset`)**:
-   - **Modo MOS (`target_mode == "mos_insitu"`)**:
-     - **Alvo (`Y`)**: lido estritamente de `insitu_hourly` (`source = 'IEMA'`). Horas que só possuem `open-meteo-cams-*` nunca são misturadas em `Y`.
-     - **Preditores (`X`)**: lidos de `cams_aq_hourly` + `cams_meteo_hourly` (`CAMS + meteo` — lags de 24h, lags de 1h, proxies de satélite, variáveis meteorológicas horárias e flags da estação). Assim, o modelo aprende a corrigir o fundo regional CAMS para a realidade microambiental de cada estação, mantendo compatibilidade total com a inferência de 120h no navegador/Worker (onde apenas previsões CAMS + meteo existem no futuro).
-   - **Modo Fallback (`target_mode == "cams_fallback"`)**:
-     - Quando não há nenhum registro `source = 'IEMA'` no D1 (ou quando executado em modo `--source local`), preserva 100% do comportamento atual (`Y = CAMS`, `X = CAMS + meteo`).
+1. **6 Estações com Casamento Direto 1:1 (`source = 'IEMA'`)**:
+   - `ramqar_serra_laranjeiras` $\leftrightarrow$ **`EMQAr - RGV1 - Laranjeiras`** (`IdEstacao=1`, `-20.19614, -40.24521`)
+   - `ramqar_camburi` $\leftrightarrow$ **`EMQAr - RGV3 - Jardim Camburi`** (`IdEstacao=3`, `-20.25514, -40.26967`)
+   - `ramqar_enseada_sua` $\leftrightarrow$ **`EMQAr - RGV4 - Enseada do Sua`** (`IdEstacao=4`, `-20.31330, -40.29069`)
+   - `ramqar_vitoria_centro` $\leftrightarrow$ **`EMQAr - RGV5 - Vitória-Centro`** (`IdEstacao=5`, `-20.32070, -40.33297`)
+   - `ramqar_ibes` $\leftrightarrow$ **`EMQAr - RGV6 - Vila Velha-IBES`** (`IdEstacao=6`, `-20.34865, -40.31742`)
+   - `ramqar_cariacica` $\leftrightarrow$ **`EMQAr - RGV8 - Vila Capixaba`** (`IdEstacao=8`, `-20.34201, -40.40218`)
+2. **3 Estações Divergentes (Decisão Recomendada)**:
+   - **`ramqar_serra_jacupemba` $\to$ `EMQAr - RGV9 - Cidade Continental` (`IdEstacao=9`, `-20.22062, -40.22767`, `source = 'IEMA'`)**: Jacupemba pertence a Aracruz; `RGV9` é a estação física oficial do IEMA no setor norte/costeiro da Serra e está ativa tanto na planilha XLSX (`PM25, PM10, NO2, SO2` com >80% completude) quanto na API PRODEST.
+   - **`ramqar_paul` $\to$ Opção recomendada: IDW Haversine $1/d^2$ sobre `RGV4 (Suá) + RGV5 (Centro) + RGV6 (IBES)` com `source = 'IEMA_IDW'` (mantendo coordenada `-20.33709, -40.29022` da antiga `RGV7` em Vila Velha) — ou associar `RGV2 Carapina` para não perder a 8ª estação física**:
+     - *Por que não mapear `ramqar_paul` diretamente para `RGV2 Carapina` sem ressalva?* Porque `Paul` fica em Vila Velha (baía sul, entre Vitória Centro, Enseada do Suá e IBES), enquanto `RGV2 Carapina` fica na Serra (13 km ao norte) e só mede `PM25` e `PM10` (sem gases `O3/NO2/SO2`). Usar `RGV2` como estação doadora na malha IDW regional e interpolar `ramqar_paul` via IDW $1/d^2$ a partir das vizinhas imediatas (`RGV4` a 2,7 km, `RGV5` a 4,8 km e `RGV6` a 3,1 km) preserva a coerência geográfica de Vila Velha.
+   - **`ramqar_vila_velha_fundo` $\to$ IDW Haversine $1/d^2$ com `source = 'IEMA_IDW'`**: não há estação física no sul/interior de Vila Velha; recebe interpolação espacial ponderada por $w_i = 1/d_i^2$ a partir das estações físicas ativas da RGV (`RGV6 IBES` a 2,7 km, `RGV4 Suá`, `RGV8 Cariacica`), declarando explicitamente `source = 'IEMA_IDW'`.
 
 ---
 
-## 4. Passo a Passo (Runbook) Quando a Sonda Entregar a Fonte In-Situ
+## 4. Divisão do Plano de Execução MOS: (a) Dataset, (b) Treino + Backtest, (c) Worker / Web
 
-Quando o conector de dados *in-situ* do IEMA popular a tabela `observed_pollutants` do Cloudflare D1:
+### (a) Dataset MOS ($X / Y$) — Escopo `ml/training/`
+1. **Parser `ml/training/fetch_iema_insitu.py` $\to$ `ml/data/iema_insitu_raw.json`**:
+   - Usa apenas biblioteca padrão (`zipfile` + `xml.etree.ElementTree.iterparse` + `urllib.request`) para ler as planilhas oficiais `.xlsx` do IEMA-ES (2024, 2025.1, 2025.2 e 2026 Jan–Set, ~6.553h em 2026).
+   - **Filtro de qualidade estrito**: mantém apenas medições numéricas $\ge 0$ cujo `Status <Parâmetro>` adjacente seja `""`, `"VU"` ou `"VI"` (descartando `-9999`, `"IU"`, `"IT"`, `"ID"`, `"!"`).
+   - **Normalização física e temporal**:
+     - Converte timestamps locais `BRT (UTC-3)` para `UTC` (`+3h`, formato `YYYY-MM-DDTHH:00`) para alinhar 1:1 com `openmeteo_raw.json`.
+     - Converte `VelVento` de `m/s` para `km/h` (`* 3.6`) ao gravar `wind_speed_10m`, pois `row_to_features` divide `wind_speed_10m` por `3.6`.
+   - **Imputação espacial IDW ($1/d^2$)**: para pares `(estação, poluente)` não monitorados pela torre física (ex.: `O3` em `RGV3`/`RGV5`/`RGV9`; `PM25` em `RGV8`) e para as estações virtuais `IEMA_IDW`, interpola na mesma hora $t$ usando $w_i = 1/d_{\text{Haversine}}^2$ das estações RGV válidas, marcando flag `in_situ_interpolated`.
+2. **Join MOS em `ml/training/build_real_dataset.py` e `ml/training/fetch_from_d1.py` (já implementado e testado em `test_mos_pipeline.py`)**:
+   - **Contrato de features**: **`FEATURE_ORDER_V2`** (30 features canônicas definidas em `db/schema.ts` e `packages/inference-client/src/features.ts`, sem reordenação).
+   - **Alvo $Y$**: concentrações horárias brutas $\mu\text{g/m}^3$ in-situ do IEMA (`pm25, pm10, o3, no2, so2`).
+   - **Preditores $X$ (`FEATURE_ORDER_V2`)**:
+     - `pm25_lag24..o3_lag24` (índices 20..23) e `pm25_lag1..so2_lag1` (índices 25..29): **lags in-situ da própria estação** em $t-24\text{h}$ e $t-1\text{h}$ (com fallback por variável para `cams_aq_hourly` quando houver lacuna de manutenção na hora do lag).
+     - Meteorologia (índices 0..8): **meteo in-situ medida na torre da estação** (`TempAr`, `RH`, `VelVento`, `DirVento`, `Press_Ar`, `Radiação`), com fallback por variável para Open-Meteo `cams_meteo_hourly` para `boundary_layer_height` / `pblh_rolling6` (índice 24) e sensores ausentes na torre (ex.: vento em `RGV5`).
 
-### Passo 1 — Verificar Contrato de Ingestão no D1
-Certifique-se de que os registros gravados em `observed_pollutants` obedecem a:
-- `station_id`: ID canônico da estação (`ramqar_camburi`, `ramqar_enseada_sua`, `ramqar_vitoria_centro`, `ramqar_ibes`, `ramqar_paul`, `ramqar_cariacica`, `ramqar_serra_laranjeiras`, `ramqar_serra_jacupemba`, `ramqar_vila_velha_fundo`);
-- `timestamp`: horário UTC em formato ISO (`YYYY-MM-DDTHH:00:00Z`);
-- `source`: exatamente `'IEMA'` (case-sensitive);
-- `pm25`, `pm10`, `o3`, `no2`, `so2`: concentrações medidas em `µg/m³` (`NULL` quando o analisador de um poluente específico estiver em manutenção).
+### (b) Treino + Avaliação com Backtest In-Situ — Escopo `ml/training/` + `ml/evaluation/`
+1. **Split temporal sem vazamento (Zero Data Leakage)**:
+   - Reserva as últimas **168h (7 dias)** da janela histórica validada do IEMA (ex.: `2026-09-24T00:00Z` a `2026-09-30T23:00Z`, ou a janela mais recente extraída do D1) como holdout comum em `extract_holdout_from_raw` (`ml/training/evaluate_champion.py`).
+   - Treina os 5 modelos LightGBM Challenger (`order="v2"`, 30 features) exclusivamente nas horas anteriores a `holdout_start` (`end_cutoff`), ajustando a calibração isotônica (`calibrate.py`) sem tocar no holdout.
+2. **Backtest In-Situ Pareado (`evaluate_champion.py`, `eval_holdout.py`, `build_comparison.py`)**:
+   - Avalia `ml` (LightGBM V2 calibrado com lags in-situ) vs `ground truth IEMA` e vs `baseline CAMS` nas 9 estações durante as 168h de holdout.
+   - Roda `ml/evaluation/audit_spatial_variance.py` sobre os novos artefatos para comprovar numericamente a quebra dos clusters idênticos (`9/9` curvas distintas e MAD par-a-par real entre estações).
 
-### Passo 2 — Atualizar Grade CAMS/Meteo e Extrair Dados do D1
-```bash
-export CLOUDFLARE_ACCOUNT_ID="<account_id>"
-export D1_DATABASE_ID="<database_id>"
-export CLOUDFLARE_API_TOKEN="<api_token>"
-
-# 1. Atualiza a grade contínua CAMS + meteorologia (92 dias + 120h forecast)
-/home/gabrielfs/.venvs/aetherml/bin/python ml/training/fetch_openmeteo.py
-
-# 2. Extrai observed_pollutants do D1 e inspeciona contagem de source='IEMA'
-/home/gabrielfs/.venvs/aetherml/bin/python ml/training/fetch_from_d1.py
-```
-Verifique no console que `Fontes: {'IEMA': <N>, ...}` reporta `N > 0` registros.
-
-### Passo 3 — Executar Retreino com `--source d1`
-```bash
-/home/gabrielfs/.venvs/aetherml/bin/python ml/training/retrain_real.py --source d1 --d1-required
-```
-- O pipeline executará automaticamente `merge_d1_with_meteo`, ativará `target_mode = "mos_insitu"`, construirá `ml/data/train_dataset_real.json` com `Y = IEMA` e `X = CAMS + meteo`, avaliará o Challenger contra o Champion no holdout temporal de 168h e atualizará os artefatos ONNX/JSON promovidos.
-
-### Passo 4 — Regenerar Artefatos de Comparação e Auditar Variância Espacial
-```bash
-PYTHONPATH=. /home/gabrielfs/.venvs/aetherml/bin/python ml/training/predict_forecast.py
-PYTHONPATH=. /home/gabrielfs/.venvs/aetherml/bin/python ml/evaluation/build_comparison.py
-PYTHONPATH=. /home/gabrielfs/.venvs/aetherml/bin/python ml/evaluation/build_forecast_compare.py
-PYTHONPATH=. /home/gabrielfs/.venvs/aetherml/bin/python ml/evaluation/audit_spatial_variance.py
-```
-Confirme no relatório do `audit_spatial_variance.py` o ganho de curvas distintas e o aumento do MAD par-a-par entre as estações calibradas com `source='IEMA'`.
+### (c) O Que Fica para o Worker e para o Web — Escopo `workers/ingestion` (Veio) + `apps/web` (Vitral)
+1. **Worker de Ingestão em Tempo Real (`workers/ingestion`, frente do Veio)**:
+   - No cron `:30`, consultar `GET https://qualidadedoarapi.es.gov.br/api/mapa` e `GET https://qualidadedoarapi.es.gov.br/api/mapa/{IdEstacao}` (janela móvel de 48h).
+   - Gravar em `observed_pollutants` (D1) com `source = 'IEMA'` (e `'IEMA_IDW'` para estações interpoladas), fornecendo os lags reais `lag1` e `lag24` por estação para a inferência ONNX (`FEATURE_ORDER_V2`) na borda.
+2. **Web / Artefatos Públicos (`apps/web`)**:
+   - Enquanto os modelos ativos em produção (`apps/web/public/models/`) ainda forem os treinados no CAMS, a UI mantém os avisos honestos já aplicados neste floor (`previsão regional CAMS ~40 km + correção local de meteo; diferenciação por estação virá com in-situ/MOS`).
+   - Assim que o Challenger MOS (`Y=IEMA`, `X=lags/meteo in-situ + PBLH Open-Meteo`) for promovido e o Worker popular `source='IEMA'`, atualizar `model-eval.json`, `comparison-data.json`, `forecast-compare.json` e o rótulo de proveniência para refletir a calibração in-situ ativa.

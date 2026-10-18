@@ -175,14 +175,17 @@ class TestMOSPipeline(unittest.TestCase):
             self.assertEqual(pm25_targets[:5], [25.5] * 5)
             self.assertEqual(pm25_targets[5:], [14.2] * 5)
 
-            # Verifica que X (lags 24h e lags 1h) veio de CAMS (pm2_5=8.0, pm10=16.0, no2=5.0, o3=40.0, so2=2.0)
+            # Na primeira hora IEMA (h=30), h-1 (29) e h-24 (6) não tinham IEMA, logo faz fallback p/ CAMS (8.0).
+            # Nas horas seguintes (h=31..34), lag1 vem do próprio IEMA in-situ por estação (25.5 em camburi, 14.2 em paul)!
             idx_pm25_lag24 = FEATURE_NAMES_V2.index("pm25_lag24")
             idx_pm25_lag1 = FEATURE_NAMES_V2.index("pm25_lag1")
-            idx_no2_lag1 = FEATURE_NAMES_V2.index("no2_lag1")
-            for row in dataset["features"]:
-                self.assertEqual(row[idx_pm25_lag24], 8.0)
-                self.assertEqual(row[idx_pm25_lag1], 8.0)
-                self.assertEqual(row[idx_no2_lag1], 5.0)
+            self.assertEqual(dataset["features"][0][idx_pm25_lag24], 8.0)
+            self.assertEqual(dataset["features"][0][idx_pm25_lag1], 8.0)
+            for row in dataset["features"][1:5]:
+                self.assertEqual(row[idx_pm25_lag1], 25.5)
+            self.assertEqual(dataset["features"][5][idx_pm25_lag1], 8.0)
+            for row in dataset["features"][6:10]:
+                self.assertEqual(row[idx_pm25_lag1], 14.2)
 
     def test_fallback_without_iema_preserves_cams_behavior(self):
         """

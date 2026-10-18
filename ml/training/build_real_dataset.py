@@ -252,6 +252,10 @@ def build_real_dataset(
                 if norm_k not in insitu_map:
                     continue
                 obs_y = insitu_map[norm_k]
+                norm_k24 = _norm_ts(aq_x["time"][i - 24])
+                norm_k1 = _norm_ts(aq_x["time"][i - 1])
+                obs_lag24 = insitu_map.get(norm_k24) or {}
+                obs_lag1 = insitu_map.get(norm_k1) or {}
 
             try:
                 if target_mode == "mos_insitu":
@@ -263,7 +267,11 @@ def build_real_dataset(
                 if any(v is None for v in aq_now.values()):
                     raise ValueError("alvo None")
                 m_now = {
-                    k: met_x[k][i]
+                    k: (
+                        obs_y.get(k)
+                        if (target_mode == "mos_insitu" and obs_y.get(k) is not None)
+                        else met_x[k][i]
+                    )
                     for k in (
                         "temperature_2m",
                         "relative_humidity_2m",
@@ -276,18 +284,37 @@ def build_real_dataset(
                 }
                 if any(v is None for v in m_now.values()):
                     raise ValueError("meteo None")
-                lags = {
-                    "pm25": aq_x["pm2_5"][i - 24],
-                    "pm10": aq_x["pm10"][i - 24],
-                    "no2": aq_x["nitrogen_dioxide"][i - 24],
-                    "o3": aq_x["ozone"][i - 24],
-                    "pblh6": sum(met_x["boundary_layer_height"][i - 6 : i]) / 6.0,
-                }
+                if target_mode == "mos_insitu":
+                    lags = {
+                        "pm25": obs_lag24.get("pm25") if obs_lag24.get("pm25") is not None else aq_x["pm2_5"][i - 24],
+                        "pm10": obs_lag24.get("pm10") if obs_lag24.get("pm10") is not None else aq_x["pm10"][i - 24],
+                        "no2": obs_lag24.get("no2") if obs_lag24.get("no2") is not None else aq_x["nitrogen_dioxide"][i - 24],
+                        "o3": obs_lag24.get("o3") if obs_lag24.get("o3") is not None else aq_x["ozone"][i - 24],
+                        "pblh6": sum(met_x["boundary_layer_height"][i - 6 : i]) / 6.0,
+                    }
+                else:
+                    lags = {
+                        "pm25": aq_x["pm2_5"][i - 24],
+                        "pm10": aq_x["pm10"][i - 24],
+                        "no2": aq_x["nitrogen_dioxide"][i - 24],
+                        "o3": aq_x["ozone"][i - 24],
+                        "pblh6": sum(met_x["boundary_layer_height"][i - 6 : i]) / 6.0,
+                    }
                 if any(v is None for v in lags.values()):
                     raise ValueError("lag None")
                 lags1 = None
                 if order == "v2":
-                    lags1 = {t: aq_x[AQ_KEYS[t]][i - 1] for t in LAG1_TARGETS}
+                    if target_mode == "mos_insitu":
+                        lags1 = {
+                            t: (
+                                obs_lag1.get(t)
+                                if obs_lag1.get(t) is not None
+                                else aq_x[AQ_KEYS[t]][i - 1]
+                            )
+                            for t in LAG1_TARGETS
+                        }
+                    else:
+                        lags1 = {t: aq_x[AQ_KEYS[t]][i - 1] for t in LAG1_TARGETS}
                     if any(v is None for v in lags1.values()):
                         raise ValueError("lag1 None")
                 feats = row_to_features(
