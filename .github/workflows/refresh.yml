@@ -41,13 +41,17 @@ jobs:
       - name: Run pipeline refresh
         run: python3 ml/refresh_all.py
 
+      # Sem flags de skip ([skip ci] etc.) na mensagem de commit: o Cloudflare Pages
+      # também inspeciona a mensagem para omitir deploys (flags honradas como prefixo),
+      # e este push precisa rebuildar o site com os dados novos. No lado do GitHub
+      # Actions nada muda: pushes feitos com o GITHUB_TOKEN não re-disparam workflows.
       - name: Commit and push if artifacts changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if [ -n "$(git status --porcelain apps/web/public/data/ ml/data/)" ]; then
             git add apps/web/public/data/ ml/data/
-            git commit -m "chore(data): refresh forecast e artefatos de dados [skip ci]"
+            git commit -m "chore(data): refresh forecast e artefatos de dados"
             git pull --rebase --autostash
             git push
           else
