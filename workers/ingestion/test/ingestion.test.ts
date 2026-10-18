@@ -696,7 +696,49 @@ test("ingest: rejeita days fora do intervalo 1..MAX_BACKFILL_DAYS", async () => 
 	}
 });
 
-test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /ingest?days=2 executa backfill", async () => {
+test("ingest com days=30 (teto MAX_BACKFILL_DAYS): busca past_days=30, recorta 720h e grava 6480 linhas por tabela em 18 subrequests", async () => {
+	const local = localD1(createSchema());
+	const requestedUrls: string[] = [];
+	try {
+		const hours30d = generateHours(NOW.toISOString(), 30 * 24 + 24);
+		const baseFetch = fakeOpenMeteo(hours30d);
+		const spyFetch = (async (input: string) => {
+			requestedUrls.push(String(input));
+			return baseFetch(input);
+		}) as unknown as typeof fetch;
+
+		const report = await ingest(
+			{ DB: local.db },
+			{ now: NOW, days: 30, fetchImpl: spyFetch, ...SILENT },
+		);
+
+		assert.equal(report.failed, 0);
+		assert.equal(report.from, "2026-09-02T14:00");
+		assert.equal(report.to, "2026-10-02T13:00");
+		assert.equal(report.observedRows, 9 * 720);
+		assert.equal(report.featureRows, 9 * 720);
+		assert.equal(requestedUrls.length, 18);
+		for (const u of requestedUrls) {
+			const parsed = new URL(u);
+			assert.equal(parsed.searchParams.get("past_days"), "30");
+			assert.equal(parsed.searchParams.get("forecast_days"), "1");
+		}
+
+		const obsCount = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
+			.first<{ n: number }>();
+		const featCount = await local.db
+			.prepare("SELECT COUNT(*) n FROM environmental_features")
+			.first<{ n: number }>();
+		assert.equal(obsCount?.n, 6480);
+		assert.equal(featCount?.n, 6480);
+	} finally {
+		local.close();
+	}
+});
+
+test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /ingest?days=2 executa backfill com relógio determinístico", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: NOW });
 	const local = localD1(createSchema());
 	const origFetch = globalThis.fetch;
 	const origLog = console.log;
@@ -717,7 +759,7 @@ test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /in
 		assert.equal(countAfterBad?.n, 0, "requisição 400 não pode tocar no D1");
 
 		const requestedUrls: string[] = [];
-		const hours2d = generateHours(new Date().toISOString(), 2 * 24 + 24);
+		const hours2d = generateHours(NOW.toISOString(), 2 * 24 + 24);
 		const baseFetch = fakeOpenMeteo(hours2d);
 		globalThis.fetch = (async (input: string) => {
 			requestedUrls.push(String(input));
@@ -731,8 +773,16 @@ test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /in
 			{ DB: local.db },
 		);
 		assert.equal(okRes.status, 200);
-		const report = (await okRes.json()) as { observedRows: number; featureRows: number; failed: number };
+		const report = (await okRes.json()) as {
+			from: string;
+			to: string;
+			observedRows: number;
+			featureRows: number;
+			failed: number;
+		};
 		assert.equal(report.failed, 0);
+		assert.equal(report.from, "2026-09-30T14:00");
+		assert.equal(report.to, "2026-10-02T13:00");
 		assert.equal(report.observedRows, 9 * 48);
 		assert.equal(report.featureRows, 9 * 48);
 		assert.equal(requestedUrls.length, 18);
@@ -744,4 +794,133 @@ test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /in
 		local.close();
 	}
 });
+
+test("worker.fetch: GET e HEAD em /ingest devolvem 405 Method Not Allowed sem ingerir nada", async () => {
+	const local = localD1(createSchema());
+	let fetchCalls = 0;
+	const origFetch = globalThis.fetch;
+	try {
+		globalThis.fetch = (async () => {
+			fetchCalls++;
+			return new Response("{}", { status: 200 });
+		}) as unknown as typeof fetch;
+
+		for (const method of ["GET", "HEAD", "PUT", "DELETE"]) {
+			const res = await worker.fetch(
+				new Request("https://aetherml-ingestion.local/ingest?days=7", { method }),
+				{ DB: local.db },
+			);
+			assert.equal(res.status, 405, `esperava 405 para ${method} /ingest`);
+			assert.equal(res.headers.get("allow"), "POST");
+		}
+
+		assert.equal(fetchCalls, 0, "método não-POST não pode disparar subrequests");
+		const obsCount = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
+			.first<{ n: number }>();
+		const featCount = await local.db
+			.prepare("SELECT COUNT(*) n FROM environmental_features")
+			.first<{ n: number }>();
+		assert.equal(obsCount?.n, 0, "observed_pollutants deve permanecer intocado");
+		assert.equal(featCount?.n, 0, "environmental_features deve permanecer intocado");
+	} finally {
+		globalThis.fetch = origFetch;
+		local.close();
+	}
+});
+
+test("worker.fetch: exige X-Ingest-Token (401) quando env.INGEST_TOKEN está configurado", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: NOW });
+	const local = localD1(createSchema());
+	const origFetch = globalThis.fetch;
+	const origLog = console.log;
+	const origErr = console.error;
+	try {
+		let fetchCalls = 0;
+		const baseFetch = fakeOpenMeteo(WINDOW_HOURS);
+		globalThis.fetch = (async (input: string) => {
+			fetchCalls++;
+			return baseFetch(input);
+		}) as unknown as typeof fetch;
+		console.log = () => {};
+		console.error = () => {};
+
+		// 1. Sem header X-Ingest-Token → 401
+		const missingRes = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest", { method: "POST" }),
+			{ DB: local.db, INGEST_TOKEN: "segredo-super-forte" },
+		);
+		assert.equal(missingRes.status, 401);
+
+		// 2. Com header X-Ingest-Token errado → 401
+		const wrongRes = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest", {
+				method: "POST",
+				headers: { "X-Ingest-Token": "token-errado" },
+			}),
+			{ DB: local.db, INGEST_TOKEN: "segredo-super-forte" },
+		);
+		assert.equal(wrongRes.status, 401);
+		assert.equal(fetchCalls, 0, "requisição 401 não pode disparar subrequests");
+
+		const obsBefore = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
+			.first<{ n: number }>();
+		assert.equal(obsBefore?.n, 0, "D1 intocado após 401");
+
+		// 3. Com header X-Ingest-Token correto → 200 e ingere normalmente
+		const okRes = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest", {
+				method: "POST",
+				headers: { "X-Ingest-Token": "segredo-super-forte" },
+			}),
+			{ DB: local.db, INGEST_TOKEN: "segredo-super-forte" },
+		);
+		assert.equal(okRes.status, 200);
+		const obsAfter = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
+			.first<{ n: number }>();
+		assert.equal(obsAfter?.n, 9 * WINDOW_HOURS.length);
+	} finally {
+		globalThis.fetch = origFetch;
+		console.log = origLog;
+		console.error = origErr;
+		local.close();
+	}
+});
+
+test("worker.fetch: devolve 502 Bad Gateway quando todas as estações falham e observedRows === 0", async (t) => {
+	t.mock.timers.enable({ apis: ["Date"], now: NOW });
+	const local = localD1(createSchema());
+	const origFetch = globalThis.fetch;
+	const origLog = console.log;
+	const origErr = console.error;
+	try {
+		globalThis.fetch = (async () =>
+			new Response("open-meteo down", { status: 503 })) as unknown as typeof fetch;
+		console.log = () => {};
+		console.error = () => {};
+
+		const res = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest", { method: "POST" }),
+			{ DB: local.db },
+		);
+		assert.equal(res.status, 502);
+		const report = (await res.json()) as { failed: number; observedRows: number; featureRows: number };
+		assert.equal(report.failed, 9);
+		assert.equal(report.observedRows, 0);
+		assert.equal(report.featureRows, 0);
+
+		const obsCount = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
+			.first<{ n: number }>();
+		assert.equal(obsCount?.n, 0);
+	} finally {
+		globalThis.fetch = origFetch;
+		console.log = origLog;
+		console.error = origErr;
+		local.close();
+	}
+});
+
 

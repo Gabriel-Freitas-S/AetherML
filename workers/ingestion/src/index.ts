@@ -3,13 +3,15 @@
 // ---------------------------------------------------------------------------
 // O QUE ESTE WORKER GRAVA (leia antes de "simplificar")
 // ---------------------------------------------------------------------------
-// Open-Meteo CAMS é REANÁLISE/PREVISÃO DE MODELO, NÃO leitura de estação. O
-// modelo LightGBM do projeto foi TREINADO contra valores CAMS (ver
-// ml/training/fetch_openmeteo.py), portanto gravar CAMS em `observed_pollutants`
-// e depois retreinar contra esta tabela seria CIRCULAR. É por isso que o
-// pipeline de retreino lê o Open-Meteo direto pelo caminho Python e NÃO lê esta
-// tabela. Consequência prática: `source` é SEMPRE explícito e nunca 'IEMA'.
-// Migration 0002_observed_source.sql adicionou a coluna justamente anulável e sem
+// Open-Meteo CAMS é REANÁLISE/PREVISÃO DE MODELO, NÃO leitura de estação.
+// Pós-BUG-03, o pipeline de retreino (`ml/training/fetch_from_d1.py`,
+// `retrain_real --source d1`) LÊ `observed_pollutants` do D1 separando
+// explicitamente observações in-situ (`source = 'IEMA'`) de produtos de modelo
+// (`open-meteo-cams-*`). Enquanto não houver série in-situ oficial no D1, o
+// alvo continua sendo `Y = CAMS` (mantendo a limitação circular documentada até
+// a entrada do MOS com `source = 'IEMA'` — ver `specs/08 §2`). Consequência
+// prática: `source` é SEMPRE explícito e nunca `'IEMA'` aqui. Migration
+// 0002_observed_source.sql adicionou a coluna justamente anulável e sem
 // DEFAULT, para obrigar cada write path a declarar a origem.
 //
 // O IQAr NÃO é recalculado aqui. `globalIQAr`/`classifyIndex` vêm do pacote
@@ -34,6 +36,8 @@ import {
 
 export interface Env {
 	DB: D1Database;
+	/** Token opcional para autenticar `POST /ingest` via header `X-Ingest-Token`. */
+	INGEST_TOKEN?: string;
 }
 
 // --- Contrato com o Open-Meteo (espelha ml/training/fetch_openmeteo.py) -------
@@ -648,6 +652,28 @@ export default {
 		const url = new URL(req.url);
 		if (url.pathname !== "/ingest") {
 			return new Response("ingestion worker — POST /ingest", { status: 404 });
+		}
+		if (req.method !== "POST") {
+			return new Response(
+				JSON.stringify({ error: "Método não permitido; use POST /ingest." }, null, 2),
+				{
+					status: 405,
+					headers: { "content-type": "application/json", allow: "POST" },
+				},
+			);
+		}
+		if (env.INGEST_TOKEN && req.headers.get("X-Ingest-Token") !== env.INGEST_TOKEN) {
+			return new Response(
+				JSON.stringify(
+					{ error: "Não autorizado: header X-Ingest-Token ausente ou inválido." },
+					null,
+					2,
+				),
+				{
+					status: 401,
+					headers: { "content-type": "application/json" },
+				},
+			);
 		}
 		const parsedDays = parseBackfillDays(url.searchParams.get("days"));
 		if (!parsedDays.ok) {

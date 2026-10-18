@@ -14,6 +14,7 @@ Worker Cloudflare responsável pela ingestão horária e backfill manual de sér
      - `'open-meteo-cams-reanalysis'`: horas estritamente anteriores a `dayStart(now)` (`YYYY-MM-DDT00:00` UTC).
      - `'open-meteo-cams-forecast'`: horas a partir de `dayStart(now)` (dia corrente UTC).
      - `'IEMA'`: sentinela reservado para observações in-situ oficiais; nunca emitido por este worker.
+   - **Relação com o pipeline de retreino (pós-BUG-03)**: o extrator `ml/training/fetch_from_d1.py` (`retrain_real --source d1`) lê `observed_pollutants` do D1 separando `source = 'IEMA'` (observação in-situ oficial) de `open-meteo-cams-*` (produtos de modelo). Enquanto não houver ingestão in-situ ativa no D1, o retreino opera com `Y = CAMS` (mantendo a limitação circular conhecida até a ativação do MOS com `source = 'IEMA'`, conforme `specs/08 §2`).
 2. **`environmental_features`** (`UNIQUE(station_id, timestamp, is_forecast)`):
    - Variáveis meteorológicas Open-Meteo (`/v1/forecast`): `temperature`, `relative_humidity`, `wind_speed` (convertido de km/h para m/s), `wind_direction`, componentes vetoriais `wind_u` e `wind_v`, `boundary_layer_height`, `surface_pressure` e `solar_radiation` (clampada em `>= 0`).
    - Gravadas com `is_forecast = 0` e `source = 'open-meteo-forecast-api'`.
@@ -22,6 +23,9 @@ Worker Cloudflare responsável pela ingestão horária e backfill manual de sér
 - **Subrequests**: 1 requisição HTTP para a API de qualidade do ar (`AQ_URL`) e 1 para a API meteorológica (`METEO_URL`) por estação ativa (`9 estações × 2 serviços = 18 subrequests` por execução, tanto no modo horário quanto em backfill de até 30 dias).
 - **Transação por estação**: escritas agrupadas via `env.DB.batch([...])`, garantindo atomicidade por estação e isolamento de falhas (uma estação com erro de rede não interrompe as demais).
 - **Idempotência**: upserts via `ON CONFLICT(station_id, timestamp) DO UPDATE` e `ON CONFLICT(station_id, timestamp, is_forecast) DO UPDATE`, preservando `id` e `created_at` e atualizando medições e `source`.
+- **Requisitos de CPU/plano e risco de batch única em `days` altos (`days=30`)**:
+  - Em `days=30`, cada estação acumula `720` linhas em `observed_pollutants` + `720` em `environmental_features` (`1440` statements preparados numa única chamada `env.DB.batch` por estação, totalizando `12.960` upserts nas 9 estações).
+  - Isso exige folga no limite de CPU do Worker e fica sujeito ao limite de execução de `30s` por batch do Cloudflare D1. Caso um backfill longo (`days=30`) esbarre em timeout de batch do D1 em produção, recomenda-se particionar o `batch` por dia no código ou disparar janelas menores (ex.: `days=7` ou `days=10`).
 
 ---
 
@@ -33,7 +37,7 @@ Configurado em `wrangler.jsonc` com `crons = ["30 * * * *"]` (todo minuto `:30`)
 - Processa uma janela deslizante de `LOOKBACK_HOURS = 3` horas até a hora cheia corrente UTC (`hourWindow(now, 3)`), cobrindo eventuais atrasos de publicação do tick anterior sem reescrever o histórico inteiro a cada hora.
 
 ### Disparo Manual e Backfill (`POST /ingest?days=N`)
-O handler HTTP aceita requisições em `/ingest`:
+O endpoint `/ingest` aceita **exclusivamente** método `POST`:
 
 - **Janela padrão (3 horas)**:
   ```bash
@@ -44,16 +48,34 @@ O handler HTTP aceita requisições em `/ingest`:
   ```bash
   curl -sS -X POST "https://aetherml-ingestion.freitassouza26.workers.dev/ingest?days=7"
   ```
-- **Validação**: valores de `days` não inteiros, `<= 0` ou `> 30` (`MAX_BACKFILL_DAYS = 30`) retornam `HTTP 400 Bad Request` com corpo JSON `{"error": "..."}` sem consultar o D1 nem realizar chamadas externas.
+
+#### Autenticação Opcional (`INGEST_TOKEN`)
+- Se a secret/variável `env.INGEST_TOKEN` **não estiver configurada**, o endpoint mantém o comportamento aberto atual.
+- Se `env.INGEST_TOKEN` **estiver configurada**, toda requisição `POST /ingest` deve enviar o header `X-Ingest-Token: <valor>` correspondente (caso contrário, responde `401 Unauthorized` sem tocar no D1).
+- **Rollout do secret (opcional, decidido no deploy)**:
+  ```bash
+  npx wrangler secret put INGEST_TOKEN --config workers/ingestion/wrangler.jsonc
+  curl -sS -X POST -H "X-Ingest-Token: $INGEST_TOKEN" \
+    "https://aetherml-ingestion.freitassouza26.workers.dev/ingest?days=7"
+  ```
+
+#### Semântica dos Status HTTP
+- `200 OK`: execução concluída com escrita no banco (`observedRows > 0`). **Atenção**: falhas parciais (`report.failed > 0`, quando algumas estações gravam e outras falham) também retornam `200 OK`; inspecione `failed` e `stations[].error` no JSON retornado.
+- `502 Bad Gateway`: falha total (`report.failed > 0 && report.observedRows === 0` — nenhuma linha gravada).
+- `400 Bad Request`: parâmetro `days` inválido (não inteiro, `<= 0` ou `> 30`).
+- `401 Unauthorized`: `env.INGEST_TOKEN` configurado no Worker e header `X-Ingest-Token` ausente ou incorreto.
+- `405 Method Not Allowed`: método diferente de `POST` (inclui `Allow: POST`), sem tocar no D1.
+- `404 Not Found`: rota diferente de `/ingest`.
 
 ### Testes e Deploy
 ```bash
 # Executar suíte de testes unitários e de integração local (node:sqlite + migrations reais)
 npm --prefix workers/ingestion test
 
-# Deploy do worker em produção
+# Deploy manual do worker em produção
 npx wrangler deploy --config workers/ingestion/wrangler.jsonc
 ```
+O deploy contínuo também é automatizado via `.github/workflows/deploy-worker.yml` em pushes na `main` que alterem `workers/ingestion/**` (ou via `workflow_dispatch`).
 
 ---
 
@@ -66,7 +88,8 @@ npx wrangler deploy --config workers/ingestion/wrangler.jsonc
   2. Embora a implementação completa de ingestão tenha sido adicionada ao repositório em `ffadcde` (e testada em `29627c1`), os workflows de CI (`.github/workflows/ci.yml` e `.github/workflows/refresh.yml`) faziam deploy apenas do frontend no Cloudflare Pages (`wrangler pages deploy apps/web/dist`), sem etapa de `wrangler deploy` para `workers/ingestion`. Consequentemente, a Cloudflare continuou executando a versão placeholder original a cada tick horário.
 - **Resolução**:
   1. Deploy do código real do worker (`version 23c2376e`) e validação do `POST /ingest` na janela curta.
-  2. Adição do modo de backfill manual `POST /ingest?days=N` (`version b400dfe7`) e execução do backfill de 7 dias para recompor a série histórica exigida pelo pipeline de retreino semanal.
+  2. Adição do modo de backfill manual `POST /ingest?days=N` (`version b400dfe7`) e execução do backfill de 7 dias para recompor a série histórica exigida pelo pipeline de retreino semanal (`ml/training/fetch_from_d1.py`, `retrain_real --source d1`).
+  3. Criação do workflow `.github/workflows/deploy-worker.yml` para garantir o deploy automático de `workers/ingestion` no push da `main`.
 
 ### Evidência de Execução em Produção (2026-10-18)
 - **Worker publicado**: `aetherml-ingestion` version `b400dfe7` (`https://aetherml-ingestion.freitassouza26.workers.dev`, schedule `30 * * * *`).
