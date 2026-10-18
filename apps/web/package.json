@@ -9,7 +9,7 @@
 		"prebuild": "pnpm run build:sw",
 		"build": "astro build",
 		"preview": "astro preview",
-		"refresh:data": "cd ../.. && python ml/refresh_all.py",
+		"refresh:data": "cd ../.. && python3 ml/refresh_all.py",
 		"test": "node --test test/**/*.test.ts"
 	},
 	"dependencies": {
@@ -28,6 +28,7 @@
 	"devDependencies": {
 		"@iconify-json/ph": "^1.2.2",
 		"@types/leaflet": "^1.9.12",
+		"esbuild": "^0.21.5",
 		"typescript": "^5.5.0"
 	}
 }

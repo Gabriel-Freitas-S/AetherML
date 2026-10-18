@@ -32,3 +32,12 @@ Previsão de qualidade do ar RMGV (48h, 5 poluentes + CO). Fonte normativa: `Aet
 ## Setup de skills/MCP (uma vez por máquina)
 - `graphify opencode install` e `graphify antigravity install` (gera plugin/rules/workflows always-on).
 - MCPs em `opencode.json` (OpenCode) e `.agents/mcp_config.json` (Antigravity): `cloudflare-docs`, `codegraph`.
+
+## Maestri (orquestração)
+- Workspace Maestri **AetherML** (`~/Projetos/AetherML`, grupo *Projetos*), criado a partir do template `Estacao Base`.
+- **Maestro** = opencode deste projeto: modelo `opencode-go/deepseek-v4.1-flash` (flash-first, pinado em `opencode.json`), terminal com Maestro Mode ON e comando `opencode --auto`.
+- **Recrutas** = agy nos distrobox `agy-estudante` (estudo/experimento) e `agy-pessoal` (projeto pessoal): `agy --model gemini-3.8-flash-{low,medium,high} --dangerously-skip-permissions --dir <projeto>`. Proibidos `gemini-3.1-pro-*`, `gpt-oss-120b-*`, `claude-opus-*`; Sonnet só a pedido e com quota conferida (`agy-quota <container>`).
+- **Delegação**: trabalho real (ler, codar, revisar, testar) vai para um recruta (`maestri recruit` + `maestri ask`); o Maestro orquestra, decide e confere o resultado.
+- **Floors**: um por tarefa — `maestri floor create "<tarefa>"` (worktree git em `.maestri/floors`, gitignorado); status com `maestri floor status` (working/blocked/review/done).
+- Subagentes nativos (`.opencode/agents/flash-*`) antes de abrir sub-Maestros.
+- Regras completas: bloco Maestri em `~/.config/opencode/AGENTS.md` e `~/tools/maestri-local/`.

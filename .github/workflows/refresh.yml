@@ -1,0 +1,55 @@
+name: Refresh Data Pipeline
+
+# O deploy do Cloudflare Pages ocorre automaticamente no push do repositório.
+# Sem este refresh diário dos artefatos estáticos (apps/web/public/data/*.json e ml/data/*.json),
+# o site web/PWA cai no fallback do Open-Meteo por defasagem dos dados locais.
+#
+# Se um deploy manual ou hook adicional for necessário:
+# env:
+#   CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }} # Opcional
+
+on:
+  schedule:
+    # Executa diariamente às 09:00 UTC
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    name: Refresh and Commit Data Artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline refresh
+        run: python3 ml/refresh_all.py
+
+      - name: Commit and push if artifacts changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain apps/web/public/data/ ml/data/)" ]; then
+            git add apps/web/public/data/ ml/data/
+            git commit -m "chore(data): refresh forecast e artefatos de dados [skip ci]"
+            git pull --rebase --autostash
+            git push
+          else
+            echo "Nenhuma alteração detectada em apps/web/public/data/ ou ml/data/."
+          fi

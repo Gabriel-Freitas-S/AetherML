@@ -58,6 +58,7 @@ Thumbs.db
 *.sw?
 
 # Tool-specific state & scratchpads
+.maestri/
 .impeccable/
 graphify-out/cache/
 tmp/
