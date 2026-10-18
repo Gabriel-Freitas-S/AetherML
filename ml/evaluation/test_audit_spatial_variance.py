@@ -14,6 +14,10 @@ from ml.evaluation.audit_spatial_variance import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# Fixtures congeladas dos artefatos regeneráveis (regravados pelo bot de refresh diário).
+# Fontes: git show 0f7e9f0:apps/web/public/data/stations-data.json (IQAr [40]);
+# demais artefatos de cc50d84.
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
 
 class TestAuditSpatialVariance(unittest.TestCase):
@@ -27,7 +31,7 @@ class TestAuditSpatialVariance(unittest.TestCase):
         self.assertGreater(result["max_distance_km"], 25.0)
 
     def test_audit_openmeteo_raw_quantifies_cams_and_meteo_clusters(self):
-        result = audit_openmeteo_raw(REPO_ROOT / "ml" / "data" / "openmeteo_raw.json")
+        result = audit_openmeteo_raw(FIXTURES / "openmeteo_raw.json")
         self.assertEqual(result["station_count"], 9)
         self.assertEqual(result["hours_per_station"], 2352)
 
@@ -58,9 +62,7 @@ class TestAuditSpatialVariance(unittest.TestCase):
         self.assertEqual(temp_stats["forecast_tail_120h_distinct_curves"], 5)
 
     def test_audit_forecast_compare_detects_7_distinct_curves_and_identical_pairs(self):
-        result = audit_forecast_compare(
-            REPO_ROOT / "apps" / "web" / "public" / "data" / "forecast-compare.json"
-        )
+        result = audit_forecast_compare(FIXTURES / "forecast-compare.json")
         self.assertEqual(result["station_count"], 9)
         self.assertEqual(result["horizon_hours"], 120)
 
@@ -75,9 +77,7 @@ class TestAuditSpatialVariance(unittest.TestCase):
         self.assertEqual(result["cams_variables"]["pm25"]["distinct_curves"], 2)
 
     def test_audit_holdout_comparison_confirms_core8_mad_under_0_3(self):
-        result = audit_holdout_comparison(
-            REPO_ROOT / "apps" / "web" / "public" / "data" / "comparison-data.json"
-        )
+        result = audit_holdout_comparison(FIXTURES / "comparison-data.json")
         self.assertEqual(result["station_count"], 9)
         self.assertEqual(result["holdout_hours"], 168)
         pm25_ml = result["ml_variables"]["pm25"]
@@ -86,15 +86,20 @@ class TestAuditSpatialVariance(unittest.TestCase):
         self.assertGreater(pm25_ml["core_8_min_corr"], 0.99)
 
     def test_audit_stations_data_confirms_uniform_iqar_40(self):
-        result = audit_stations_data(
-            REPO_ROOT / "apps" / "web" / "public" / "data" / "stations-data.json"
-        )
+        result = audit_stations_data(FIXTURES / "stations-data.json")
         self.assertEqual(result["station_count"], 9)
         self.assertEqual(result["step0_unique_iqar"], [40])
         self.assertEqual(result["step0_unique_no2_pred"], [3.0])
 
     def test_run_full_audit_and_markdown_output(self):
-        report = run_full_audit(REPO_ROOT)
+        # Overrides apontam para as fixtures congeladas; sem eles (default) o audit leria o repo vivo.
+        report = run_full_audit(
+            REPO_ROOT,
+            openmeteo_path=FIXTURES / "openmeteo_raw.json",
+            comparison_path=FIXTURES / "comparison-data.json",
+            forecast_path=FIXTURES / "forecast-compare.json",
+            stations_path=FIXTURES / "stations-data.json",
+        )
         md = format_markdown_report(report)
         self.assertIn("camburi", md)
         self.assertIn("paul", md)
