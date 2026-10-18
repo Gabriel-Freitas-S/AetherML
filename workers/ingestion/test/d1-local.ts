@@ -5,8 +5,8 @@
 // subir `wrangler dev` e sem tocar em nenhum estado compartilhado ou remoto.
 // O DDL vem de db/migrations/*.sql — apenas LIDO, nunca aplicado por aqui.
 
-import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 const DB_DIR = fileURLToPath(new URL("../../../db/", import.meta.url));
@@ -14,7 +14,8 @@ const DB_DIR = fileURLToPath(new URL("../../../db/", import.meta.url));
 type Bindable = null | number | bigint | string | Uint8Array;
 
 /** `node:sqlite` (como D1) rejeita `undefined` como parâmetro: vira NULL. */
-const bindable = (v: unknown): Bindable => (v === undefined ? null : (v as Bindable));
+const bindable = (v: unknown): Bindable =>
+	v === undefined ? null : (v as Bindable);
 
 /** Cria um SQLite em memória com o schema canônico de `db/migrations`. */
 export function createSchema(): DatabaseSync {
@@ -34,7 +35,11 @@ function prepared(sqlite: DatabaseSync, sql: string, values: unknown[]) {
 			return prepared(sqlite, sql, [...values, ...more]);
 		},
 		async all<T = Record<string, unknown>>() {
-			return { success: true as const, results: stmt.all(...args) as T[], meta: {} };
+			return {
+				success: true as const,
+				results: stmt.all(...args) as T[],
+				meta: {},
+			};
 		},
 		async first<T = unknown>(colName?: string) {
 			const row = stmt.get(...args) as Record<string, unknown> | undefined;
@@ -46,7 +51,10 @@ function prepared(sqlite: DatabaseSync, sql: string, values: unknown[]) {
 			return {
 				success: true as const,
 				results: [],
-				meta: { changes: Number(r.changes), last_row_id: Number(r.lastInsertRowid) },
+				meta: {
+					changes: Number(r.changes),
+					last_row_id: Number(r.lastInsertRowid),
+				},
 			};
 		},
 	};
@@ -97,5 +105,9 @@ export function localD1(sqlite: DatabaseSync): LocalD1 {
 			return new ArrayBuffer(0);
 		},
 	};
-	return { db: db as unknown as D1Database, sqlite, close: () => sqlite.close() };
+	return {
+		db: db as unknown as D1Database,
+		sqlite,
+		close: () => sqlite.close(),
+	};
 }
