@@ -1,37 +1,17 @@
 <!-- apps/web/src/components/DashboardShell.svelte — o painel único.
-     Cinco seções (Agora · Mapa · Precisão · Previsão · Holdout) numa rota, com a
-     navegação do produto em dois itens (Dashboard · Docs).
-
-     TRÊS decisões que sustentam o resto do arquivo:
-
-     1. `initialSection` vem da ROTA, não da URL em tempo de build. `/mapa`,
-        `/precisao`, `/comparacao-previsao` e `/comparacao` continuam existindo,
-        continuam devolvendo 200 e continuam renderizando o MESMO painel — só com
-        outra seção selecionada. Nenhuma rota foi apagada e nenhuma passou a
-        renderizar uma view divergente.
-
-     2. O `href` de cada aba É a rota canônica. Sem JavaScript, clicar numa aba
-        navega e a seção chega certa. Com JavaScript, o clique é interceptado, a
-        seção troca sem recarregar e `history.replaceState` grava a rota real na
-        barra de endereços — então copiar a URL continua sendo um link que abre
-        na seção certa. Um mecanismo serve os dois casos.
-
-     3. ATIVAÇÃO PREGUIÇOSA DOS DADOS. Só a seção ativa é montada (`{#if}`), e
-        todo painel pesado busca o seu artefato só em `onMount`. Abrir `/` custa
-        um artefato (`stations-data.json`), não quatro. Os três artefatos de
-        comparação (117 KB + 83 KB + 80 KB) continuam no precache do service
-        worker, então a seção segue disponível offline quando é a pedida.
-
-     O custo que sobra é o do bundle JS: os cinco painéis dividem um chunk. É
-     custo estático, versionado e coberto por CacheFirst, ao contrário de 280 KB
-     de JSON que o resident não pediu para baixar na primeira visita. Em troca,
-     voltar para "Agora" remonte o painel e refaz o fetch da série — o preço de
-     uma página de verdade em vez de cinco páginas que se imitam. -->
+     Quatro seções (Agora · Mapa · Precisão · Confronto) numa rota, com a seção
+     Confronto reunindo as duas sub-abas de comparação (Previsão 120h à frente |
+     Holdout 168h de validação) e a navegação do produto em dois itens
+     (Dashboard · Docs). -->
 <script lang="ts">
 import {
+	CONFRONTO_SUBTABS,
+	type ConfrontoSubtab,
 	DASHBOARD_SECTIONS,
 	type SectionId,
+	moveConfrontoSubtab,
 	moveSection,
+	resolveConfrontoSubtab,
 	resolveSection,
 	sectionById,
 } from "../lib/dashboard-sections";
@@ -48,6 +28,8 @@ interface StationMeta {
 	municipality: string;
 	lat?: number;
 	lon?: number;
+	latitude?: number;
+	longitude?: number;
 	coastal?: boolean;
 	downwind_tubarao?: boolean;
 	bridge_proximity?: boolean;
@@ -55,12 +37,6 @@ interface StationMeta {
 	urban_canyon?: boolean;
 }
 
-/**
- * Estação com IQAr e concentração do poluente dominante, como `pages/index.astro`
- * e `pages/mapa.astro` montam no build. Declarada aqui porque o shell entrega a
- * lista intacta à seção "Mapa" — ele não recalcula IQAr em lugar nenhum, e não
- * pode começar a hacerlo.
- */
 interface MapStation {
 	id: string;
 	name: string;
@@ -79,6 +55,7 @@ const {
 	initialBundle = null,
 	initialMapStations = [],
 	initialSection = "agora",
+	initialSubtab,
 	evalData = null,
 }: {
 	stationsMeta?: StationMeta[];
@@ -86,37 +63,60 @@ const {
 	initialBundle?: Record<string, unknown> | null;
 	initialMapStations?: MapStation[];
 	initialSection?: SectionId | string;
+	initialSubtab?: ConfrontoSubtab | string;
 	evalData?: Record<string, unknown> | null;
 } = $props();
 
 let active = $state<SectionId>(resolveSection(initialSection));
+let activeSubtab = $state<ConfrontoSubtab>(
+	resolveConfrontoSubtab(initialSubtab ?? initialSection),
+);
 const section = $derived(sectionById(active));
+const currentSubtabItem = $derived(
+	CONFRONTO_SUBTABS.find((t) => t.id === activeSubtab) ?? CONFRONTO_SUBTABS[0],
+);
 
-/**
- * Troca de seção sem recarregar e reescreve a barra de endereços.
- *
- * `replaceState` e não `pushState`: folhear seções não deve encher o botão
- * "voltar" de passos que a pessoa não pediu para desfazer.
- */
-function activate(id: SectionId) {
-	active = id;
+function syncUrl(targetHref: string) {
 	if (typeof window === "undefined") return;
-	const next = new URL(sectionById(id).href, window.location.href);
-	// Preserva a barra final que o servidor realmente serviu: gravar "/mapa" numa
-	// página aberta em "/mapa/" faria o próximo F5 pagar um 308.
+	const next = new URL(targetHref, window.location.href);
 	if (window.location.pathname.endsWith("/") && !next.pathname.endsWith("/")) {
 		next.pathname = `${next.pathname}/`;
 	}
 	window.history.replaceState(null, "", `${next.pathname}${next.search}`);
 }
 
+/**
+ * Troca de seção sem recarregar e reescreve a barra de endereços.
+ */
+function activate(id: SectionId) {
+	active = id;
+	if (id === "confronto") {
+		syncUrl(currentSubtabItem.href);
+	} else {
+		syncUrl(sectionById(id).href);
+	}
+}
+
+function activateSubtab(sub: ConfrontoSubtab) {
+	active = "confronto";
+	activeSubtab = sub;
+	const found =
+		CONFRONTO_SUBTABS.find((t) => t.id === sub) ?? CONFRONTO_SUBTABS[0];
+	syncUrl(found.href);
+}
+
 function onTabClick(event: MouseEvent, id: SectionId) {
-	// Botão do meio, ctrl/⌘+clique e "abrir em nova aba" continuam sendo
-	// navegação: nesses casos ir para a rota é o comportamento esperado.
 	if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
 	if (event.button !== 0) return;
 	event.preventDefault();
 	activate(id);
+}
+
+function onSubtabClick(event: MouseEvent, sub: ConfrontoSubtab) {
+	if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+	if (event.button !== 0) return;
+	event.preventDefault();
+	activateSubtab(sub);
 }
 
 /** setas movem e ativam (automatic activation), Home/End vão às pontas. */
@@ -137,19 +137,22 @@ function onTabKeydown(event: KeyboardEvent, id: SectionId) {
 	if (el) el.focus();
 }
 
+function onSubtabKeydown(event: KeyboardEvent, sub: ConfrontoSubtab) {
+	let target: ConfrontoSubtab | null = null;
+	if (event.key === "ArrowRight") target = moveConfrontoSubtab(sub, 1);
+	else if (event.key === "ArrowLeft") target = moveConfrontoSubtab(sub, -1);
+	else if (event.key === "Home") target = CONFRONTO_SUBTABS[0].id;
+	else if (event.key === "End") target = CONFRONTO_SUBTABS.at(-1)?.id ?? sub;
+	else return;
+	event.preventDefault();
+	activateSubtab(target);
+	const el = document.getElementById(`subtab-${target}`);
+	if (el) el.focus();
+}
+
 let tabStrip = $state<HTMLElement | null>(null);
 let hint = $state<EdgeHint>("none");
 
-/**
- * Mede, e não adivinha, quanto da tira está escondido.
- *
- * A 360px as cinco abas somam 417px numa caixa de 312px: 105px ficam de fora e a
- * quinta seção, "Holdout", some inteira atrás da borda arredondada. O
- * `overflow-x-auto` não anuncia isso — em toque a barra de rolagem é sobreposta
- * e desaparece depois do primeiro gesto. O esmaecimento só acende quando existe
- * conteúdo escondido NAQUELA ponta, e apaga quando a janela cresce e a tira
- * passa a caber.
- */
 $effect(() => {
 	const el = tabStrip;
 	if (!el) return;
@@ -167,17 +170,9 @@ $effect(() => {
 });
 </script>
 
-<!-- Sem margem negativa de propósito. `main` é item flex e o island é filho
-     direto dele: um `-mx-6` aqui descola do eixo da coluna e faz `main` recusar
-     encolher (`min-width: auto` no flex item), empurrando a página 22px para
-     fora da janela. Full-bleed se resolve no próprio elemento. -->
 <div
 	class="sticky top-16 z-40 pt-2 pb-2 bg-slate-50/95 backdrop-blur-md border-b border-slate-200/80"
 >
-  <!-- O `relative` é do invólucro, não da tira: as pontas esmaecidas precisam
-       ficar POR CIMA da caixa arredondada, e ficariam roladas junto com as abas
-       se fossem filhas do elemento que rola. `pointer-events-none` para o toque
-       atravessar até a aba que está embaixo do esmaecimento. -->
   <div class="relative">
     <div
       class="flex gap-1 overflow-x-auto bg-white border border-slate-200 rounded-full shadow-sm p-1"
@@ -190,15 +185,15 @@ $effect(() => {
         <a
           id={`tab-${item.id}`}
           role="tab"
-          href={item.href}
+          href={item.id === "confronto" ? currentSubtabItem.href : item.href}
           aria-selected={on}
           aria-controls="painel-secao"
           tabindex={on ? 0 : -1}
           onclick={(e) => onTabClick(e, item.id)}
           onkeydown={(e) => onTabKeydown(e, item.id)}
-          class="flex items-center justify-center whitespace-nowrap min-h-[44px] px-4 rounded-full text-sm transition-colors {on
+          class="flex-1 sm:flex-initial flex items-center justify-center whitespace-nowrap min-h-[44px] px-3 sm:px-4 rounded-full text-xs sm:text-sm transition-colors {on
             ? 'bg-sky-700 text-white font-semibold shadow-sm'
-            : 'text-slate-600 font-medium hover:text-sky-800 hover:bg-sky-50'}"
+            : 'text-slate-600 font-medium hover:text-sky-800 hover:bg-slate-100'}"
         >
           {item.label}
         </a>
@@ -228,10 +223,53 @@ $effect(() => {
   {:else if active === "mapa"}
     <MapSection stations={initialMapStations} />
   {:else if active === "precisao"}
-    <AccuracyDashboard initialData={evalData} />
-  {:else if active === "previsao"}
-    <ForecastComparePanel />
+    <AccuracyDashboard initialData={evalData as any} />
   {:else}
-    <ComparisonPanel />
+    <!-- Seção Confronto: sub-abas internas (Previsão 120h à frente | Holdout 168h de validação) -->
+    <div class="mt-4 mb-5">
+      <div class="glass-card p-3 sm:p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div
+          class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 bg-slate-100 border border-slate-200 rounded-xl p-1 w-full md:w-auto"
+          role="tablist"
+          aria-label="Janela de confronto Modelo vs Open-Meteo"
+        >
+          {#each CONFRONTO_SUBTABS as sub (sub.id)}
+            {@const subOn = sub.id === activeSubtab}
+            <a
+              id={`subtab-${sub.id}`}
+              role="tab"
+              href={sub.href}
+              aria-selected={subOn}
+              aria-controls="painel-confronto-janela"
+              tabindex={subOn ? 0 : -1}
+              onclick={(e) => onSubtabClick(e, sub.id)}
+              onkeydown={(e) => onSubtabKeydown(e, sub.id)}
+              class="flex items-center justify-center gap-2 min-h-[44px] px-3.5 py-2 rounded-lg text-xs sm:text-sm transition-all {subOn
+                ? 'bg-sky-700 text-white font-bold shadow-sm'
+                : 'text-slate-700 font-semibold hover:text-sky-800 hover:bg-white'}"
+            >
+              <span class="{sub.id === 'previsao' ? 'i-ph-calendar-dots-fill' : 'i-ph-scales-fill'} w-4 h-4 shrink-0"></span>
+              <span>{sub.label}</span>
+            </a>
+          {/each}
+        </div>
+        <div class="flex items-center gap-2 text-xs px-1 {activeSubtab === 'previsao' ? 'text-amber-900' : 'text-emerald-900'}">
+          <span class="{activeSubtab === 'previsao' ? 'i-ph-warning-octagon-fill text-amber-600' : 'i-ph-shield-check-fill text-emerald-600'} w-4 h-4 shrink-0"></span>
+          <span class="leading-snug font-medium">{currentSubtabItem.natureNotice}</span>
+        </div>
+      </div>
+    </div>
+
+    <div
+      id="painel-confronto-janela"
+      role="tabpanel"
+      aria-labelledby={`subtab-${activeSubtab}`}
+    >
+      {#if activeSubtab === "previsao"}
+        <ForecastComparePanel onSwitchToHoldout={() => activateSubtab("holdout")} />
+      {:else}
+        <ComparisonPanel onSwitchToPrevisao={() => activateSubtab("previsao")} />
+      {/if}
+    </div>
   {/if}
 </div>

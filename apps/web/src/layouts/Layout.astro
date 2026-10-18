@@ -2,7 +2,7 @@
 // apps/web/src/layouts/Layout.astro — Tema claro
 import "katex/dist/katex.min.css";
 
-import { DASHBOARD_SECTIONS } from "../lib/dashboard-sections";
+import { isDashboardPath } from "../lib/dashboard-sections";
 
 interface Props {
 	title?: string;
@@ -25,16 +25,14 @@ const current = normalize(currentPath);
 
 /**
  * A navegação tem DOIS itens porque o produto tem duas superfícies de leitura:
- * o painel e a documentação. Mapa, Precisão, Previsão e Holdout não
- * desapareceram — viraram SEÇÕES do painel (`lib/dashboard-sections.ts`), e cada
- * uma continua com a sua rota. Por isso "Dashboard" acende em qualquer uma
- * delas: um link profundo para `/mapa` mostra o mesmo produto, com a seção certa
- * já aberta.
+ * o painel e a documentação. Mapa, Precisão e Confronto (Previsão + Holdout)
+ * são SEÇÕES do painel (`lib/dashboard-sections.ts`), e cada uma (inclusive
+ * as rotas legadas `/comparacao` e `/comparacao-previsao`) acende "Dashboard".
  */
 function isActive(href: string): boolean {
 	const target = normalize(href);
 	if (target === "/") {
-		return DASHBOARD_SECTIONS.some((s) => normalize(s.href) === current);
+		return isDashboardPath(current);
 	}
 	return current === target || current.startsWith(`${target}/`);
 }
@@ -62,6 +60,7 @@ function mobileNavClass(href: string): string {
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <meta name="theme-color" content="#0284c7" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="AetherML" />

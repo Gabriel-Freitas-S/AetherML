@@ -1,23 +1,86 @@
 <!-- apps/web/src/components/Waterfall.svelte — Explicabilidade Algorítmica Saabas (XAI) -->
 <script lang="ts">
-import type { SaabasContribution } from "@aetherml/inference-client";
+import {
+	AetherInferenceClient,
+	type SaabasContribution,
+} from "@aetherml/inference-client";
+import { onMount } from "svelte";
+import { POLLUTANT_LABEL, type PollutantKey } from "../lib/comparison";
 
 const {
 	contributions = [],
+	stationId = "",
+	features = null,
 	stationName = "Estação RMGV",
 	primaryPollutant = "pm25",
 	baseValue = 15.0,
 }: {
 	contributions: SaabasContribution[];
+	stationId?: string;
+	features?: number[] | null;
 	stationName?: string;
 	primaryPollutant?: string;
 	baseValue?: number;
 } = $props();
 
+let computedContributions = $state<SaabasContribution[]>([]);
+let computedBaseValue = $state<number | null>(null);
+
+const activeContributions = $derived(
+	contributions.length > 0 ? contributions : computedContributions,
+);
+const activeBaseValue = $derived(computedBaseValue ?? baseValue);
+
+const formattedPollutant = $derived(
+	POLLUTANT_LABEL[primaryPollutant.toLowerCase() as PollutantKey] ??
+		primaryPollutant.toUpperCase(),
+);
+
 const maxPhi = $derived.by(() => {
-	if (!contributions.length) return 10;
-	const maxVal = Math.max(...contributions.map((c) => Math.abs(c.phi)));
+	if (!activeContributions.length) return 10;
+	const maxVal = Math.max(...activeContributions.map((c) => Math.abs(c.phi)));
 	return Math.max(8, Math.ceil(maxVal * 1.2));
+});
+
+onMount(() => {
+	if (
+		contributions.length === 0 &&
+		stationId &&
+		Array.isArray(features) &&
+		features.length > 0 &&
+		typeof Worker !== "undefined"
+	) {
+		let client: AetherInferenceClient | null = null;
+		try {
+			const worker = new Worker(
+				new URL("../workers/inference.worker.ts", import.meta.url),
+				{ type: "module" },
+			);
+			const c = new AetherInferenceClient(worker);
+			client = c;
+			c.init("/models/registry.json");
+			c.waitForReady()
+				.then(() =>
+					c.explain({
+						stationId,
+						features: Array.from($state.snapshot(features)),
+						target: primaryPollutant.toLowerCase(),
+					}),
+				)
+				.then((res) => {
+					computedContributions = res.contributions ?? [];
+					computedBaseValue = res.baseValue ?? baseValue;
+				})
+				.catch(() => {
+					/* silencioso: exibe estado vazio informativo */
+				});
+		} catch {
+			/* silencioso */
+		}
+		return () => {
+			client?.terminate();
+		};
+	}
 });
 
 function getFeatureLabel(feat: string): string {
@@ -31,8 +94,8 @@ function getFeatureLabel(feat: string): string {
 		temperature: "Temperatura do Ar",
 		satellite_aod: "Profundidade Óptica (AOD)",
 		satellite_tropomi_no2: "Coluna Vertical NO₂",
-		pm25_lag24: "Persistência PM2.5 (24h)",
-		pm10_lag24: "Persistência PM10 (24h)",
+		pm25_lag24: "Persistência PM₂.₅ (24h)",
+		pm10_lag24: "Persistência PM₁₀ (24h)",
 		o3_lag24: "Persistência Ozônio (24h)",
 	};
 	return map[feat] || feat;
@@ -87,20 +150,22 @@ function getNaturalLanguageExplanation(item: SaabasContribution): string {
       </span>
     </div>
     <p class="text-xs text-slate-500 mt-1">
-      Decomposição aditiva das contribuições físicas na estimativa de <span class="text-sky-700 font-bold uppercase">{primaryPollutant}</span> em {stationName}.
+      Decomposição aditiva das contribuições físicas na estimativa de <span class="text-sky-700 font-bold">{formattedPollutant}</span> em {stationName}.
     </p>
   </div>
 
-  {#if !contributions || contributions.length === 0}
-    <div class="py-10 text-center text-slate-500 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 my-4">
-      <span class="i-ph-chart-bar-horizontal-bold inline-block w-6 h-6 text-slate-400 mb-1.5"></span>
-      <p class="text-xs font-semibold text-slate-700">Explicação indisponível</p>
-      <p class="text-[11px] text-slate-400 mt-1">Nenhum cálculo de explicabilidade Saabas XAI disponível para este ponto no momento.</p>
+  {#if !activeContributions || activeContributions.length === 0}
+    <div class="py-8 px-4 text-center text-slate-600 bg-slate-50/70 rounded-xl border border-dashed border-slate-300 my-4">
+      <span class="i-ph-chart-bar-horizontal-bold inline-block w-6 h-6 text-slate-500 mb-1.5"></span>
+      <p class="text-xs font-semibold text-slate-800">Decomposição Saabas sob demanda</p>
+      <p class="text-[11px] text-slate-600 mt-1 max-w-md mx-auto leading-relaxed">
+        As contribuições físicas por árvore (<span class="font-mono">Φᵢ</span>) são calculadas pelo motor ONNX/WASM quando o vetor completo de 30 variáveis está ativo no painel principal.
+      </p>
     </div>
   {:else}
     <!-- Lista em Cascata de Contribuições -->
     <div class="space-y-3.5 my-4">
-      {#each contributions.slice(0, 6) as item}
+      {#each activeContributions.slice(0, 6) as item}
         {@const isPositive = item.phi > 0}
         {@const barWidthPct = Math.min(100, Math.round((Math.abs(item.phi) / maxPhi) * 100))}
         <div>
@@ -145,7 +210,7 @@ function getNaturalLanguageExplanation(item: SaabasContribution): string {
       <span class="flex items-center gap-1.5">
         <span>Valor Basal Médio</span>
         <span class="katex inline-block"><span class="katex-html" aria-hidden="true"><span class="katex-base"><span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>:
-        <strong class="text-slate-700 font-mono">{baseValue} µg/m³</strong>
+        <strong class="text-slate-700 font-mono">{activeBaseValue} µg/m³</strong>
       </span>
       <span class="katex inline-block text-slate-700 font-medium" aria-label="ŷ = Φ₀ + Σ Φᵢ">
         <span class="katex-html" aria-hidden="true">

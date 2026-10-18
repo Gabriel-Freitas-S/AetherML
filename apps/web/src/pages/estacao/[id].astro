@@ -5,6 +5,15 @@ import ForecastChart from "../../components/ForecastChart.svelte";
 
 import Waterfall from "../../components/Waterfall.svelte";
 import Layout from "../../layouts/Layout.astro";
+import {
+	POLLUTANT_LABEL,
+	type PollutantKey,
+	badgeClass,
+	iqarAdvice,
+	iqarHex,
+	iqarIcon,
+	iqarTextColor,
+} from "../../lib/comparison";
 // apps/web/src/pages/estacao/[id].astro — Diagnóstico por Estação RAMQAr
 import { currentPoint as pickCurrentPoint } from "../../lib/current-point";
 import {
@@ -39,7 +48,11 @@ const points = data.points.map((p: any) => {
 
 // IQAr Atual: o ponto mais recente com `timestamp <= now` — mesma função do mapa e
 // do Dashboard, para que as três telas nunca mostrem números diferentes.
-const currentPoint = pickCurrentPoint(points, Date.now())?.point ?? null;
+const nowMs = Date.now();
+const currentPoint =
+	pickCurrentPoint(points, nowMs)?.point ?? points[0] ?? null;
+const currentRawPoint =
+	pickCurrentPoint(data.points, nowMs)?.point ?? data.points[0] ?? null;
 
 // Toda a lógica de dia local, rótulo de cartão e estado "desatualizado" vive em
 // ../../lib/forecast-days — é a mesma cópia usada pelo Dashboard.svelte.
@@ -51,69 +64,18 @@ const {
 const dataAge = describeDataAge(referenceTimestamp);
 const staleNotice = formatStaleNotice(dataAge);
 
-function badgeClass(cls?: string): string {
-	switch (cls) {
-		case "Boa":
-			return "badge-boa";
-		case "Moderada":
-			return "badge-moderada";
-		case "Ruim":
-			return "badge-ruim";
-		case "Muito Ruim":
-			return "badge-muitoruim";
-		default:
-			return "badge-pessima";
-	}
-}
-
-function iqarHex(cls?: string): string {
-	switch (cls) {
-		case "Boa":
-			return "#10b981";
-		case "Moderada":
-			return "#f59e0b";
-		case "Ruim":
-			return "#f97316";
-		case "Muito Ruim":
-			return "#ef4444";
-		default:
-			return "#a855f7";
-	}
-}
-
-function iqarTextColor(cls?: string): string {
-	switch (cls) {
-		case "Boa":
-			return "#047857";
-		case "Moderada":
-			return "#b45309";
-		case "Ruim":
-			return "#c2410c";
-		case "Muito Ruim":
-			return "#b91c1c";
-		default:
-			return "#7e22ce";
-	}
-}
-
-const DEFAULT_IQAR_ICON = "i-ph-shield-warning-fill";
-const IQAR_ICONS: Record<string, string> = {
-	Boa: "i-ph-check-circle-fill",
-	Moderada: "i-ph-warning-circle-fill",
-	Ruim: "i-ph-warning-fill",
-	"Muito Ruim": "i-ph-warning-octagon-fill",
-	Péssima: DEFAULT_IQAR_ICON,
-};
-
-function iqarIcon(cls?: string): string {
-	return (cls && IQAR_ICONS[cls]) || DEFAULT_IQAR_ICON;
+function formatPollutant(pol?: string): string {
+	if (!pol) return "—";
+	return (
+		POLLUTANT_LABEL[pol.toLowerCase() as PollutantKey] ?? pol.toUpperCase()
+	);
 }
 ---
 
 <Layout title={`AetherML — ${station.name}`}>
   <div class="mb-6 flex justify-between items-center flex-wrap gap-4 anim-fade-up">
     <div>
-      <a href="/" class="text-xs text-sky-700 hover:underline inline-flex items-center gap-1.5 mb-2 font-semibold min-h-[38px] sm:min-h-0">
+      <a href="/" class="text-xs text-sky-700 hover:underline inline-flex items-center gap-1.5 mb-2 font-semibold min-h-[44px] sm:min-h-0">
         <span class="i-ph-arrow-left-bold w-3.5 h-3.5"></span> Voltar ao Dashboard Geral
       </a>
       <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2 tracking-tight">
@@ -126,19 +88,19 @@ function iqarIcon(cls?: string): string {
     </div>
 
     <!-- Status Atual da Estação -->
-    <div class="bg-white border border-slate-200 px-5 py-3 rounded-2xl flex items-center gap-4 shadow-sm relative overflow-hidden">
-      <div class="absolute top-0 inset-x-0 h-1" style={`background: ${iqarHex(currentPoint.classification)}`}></div>
+    <div class="bg-white border border-slate-200 px-5 py-3.5 rounded-2xl flex items-center gap-4 shadow-sm relative overflow-hidden w-full sm:w-auto">
+      <div class="absolute top-0 inset-x-0 h-1" style={`background: ${iqarHex(currentPoint?.classification)}`}></div>
       <div>
-        <div class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">IQAr Atual &bull; Tempo Real</div>
-        <div class="text-3xl font-black font-mono tabular-nums" style={`color: ${iqarTextColor(currentPoint.classification)}`}>{currentPoint.iqar}</div>
+        <div class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">IQAr Atual &bull; Estação</div>
+        <div class="text-3xl sm:text-4xl font-black font-mono tabular-nums" style={`color: ${iqarTextColor(currentPoint?.classification)}`}>{currentPoint?.iqar ?? "—"}</div>
       </div>
       <div class="text-xs">
-        <span class={`chip font-bold ${badgeClass(currentPoint.classification)} flex items-center gap-1.5`}>
-          <span class={`${iqarIcon(currentPoint.classification)} w-3.5 h-3.5`}></span>
-          <span>{currentPoint.classification}</span>
+        <span class={`chip font-bold ${badgeClass(currentPoint?.classification)} flex items-center gap-1.5 w-fit`}>
+          <span class={`${iqarIcon(currentPoint?.classification)} w-3.5 h-3.5`}></span>
+          <span>{currentPoint?.classification ?? "—"}</span>
         </span>
-        <div class="text-slate-500 text-[11px] mt-1">Crítico: {currentPoint.primary.toUpperCase()}</div>
-        <div class="text-slate-400 text-[9px] mt-0.5 uppercase tracking-wider font-semibold">Previsão regional CAMS + correção local de meteo (CONAMA 491 exige médias móveis 24h/8h; diferenciação por estação virá com in-situ/MOS)</div>
+        <div class="text-slate-600 text-[11px] mt-1">Dominante: <strong class="text-slate-800">{formatPollutant(currentPoint?.primary)}</strong></div>
+        <div class="text-slate-500 text-[10px] mt-0.5 uppercase tracking-wider font-semibold">Previsão regional CAMS + correção local de meteo (CONAMA 491 exige médias móveis 24h/8h; diferenciação por estação virá com in-situ/MOS)</div>
       </div>
     </div>
   </div>
@@ -153,8 +115,8 @@ function iqarIcon(cls?: string): string {
         </span>
       </div>
     )}
-    <div class="mb-2.5 flex items-center justify-between">
-      <h2 class="text-sm font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
+    <div class="mb-2.5 flex items-center justify-between flex-wrap gap-2">
+      <h2 class="text-sm font-bold text-slate-700 uppercase tracking-wider flex items-center gap-2">
         <span class="w-2 h-2 rounded-full bg-sky-500"></span>
         {isStale ? "Histórico do Modelo por Dia" : "Prognóstico de 5 Dias (120 Horas Contínuas)"}
       </h2>
@@ -164,16 +126,22 @@ function iqarIcon(cls?: string): string {
     </div>
     <div class="flex sm:grid sm:grid-cols-3 lg:grid-cols-5 gap-3.5 overflow-x-auto pb-2 snap-x snap-mandatory">
       {fiveDaysForecast.map((day, idx) => (
-        <div class="glass-card glass-card-hover p-4 text-center relative overflow-hidden min-w-[145px] sm:min-w-0 snap-start flex-1" style={`animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) ${0.05 + idx * 0.04}s both`}>
+        <div class="glass-card glass-card-hover p-4 text-center relative overflow-hidden min-w-[155px] sm:min-w-0 snap-start flex-1 flex flex-col" style={`animation: fadeSlideUp 0.38s cubic-bezier(0.16, 1, 0.3, 1) ${0.05 + idx * 0.04}s both`}>
           <div class="absolute top-0 inset-x-0 h-0.5" style={`background: ${iqarHex(day.classification)}`}></div>
           <div class="text-[11px] text-slate-500 font-bold uppercase tracking-wider">{day.label}</div>
-          <div class="text-2xl font-black font-mono my-1 text-slate-900 tabular-nums">{day.avgIqar}</div>
-          <span class={`chip !text-[10px] font-bold ${badgeClass(day.classification)} flex items-center justify-center gap-1`}>
+          <div class="mt-1">
+            <span class="text-3xl font-black font-mono leading-none text-slate-900 tabular-nums">{day.avgIqar}</span>
+            <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-1">média do dia</span>
+          </div>
+          <span class={`chip mt-2 self-center !text-[10px] font-bold ${badgeClass(day.classification)} flex items-center justify-center gap-1`}>
             <span class={`${iqarIcon(day.classification)} w-3 h-3`}></span>
             <span>{day.classification}</span>
           </span>
-          <div class="text-[10px] text-slate-500 mt-1.5 font-mono">
-            Pico {day.maxIqar} &bull; {day.primary}
+          <div class="mt-auto pt-2.5 border-t border-slate-200 text-[11px] text-slate-500">
+            <span class="uppercase tracking-wider text-[9px] font-bold text-slate-500">pico horário</span>
+            <span class="font-mono font-semibold text-slate-700 ml-1">{day.maxIqar}</span>
+            <span class="text-slate-300 mx-0.5">&middot;</span>
+            <span>{formatPollutant(day.primary)}</span>
           </div>
         </div>
       ))}
@@ -191,21 +159,22 @@ function iqarIcon(cls?: string): string {
       <Waterfall
         client:visible
         contributions={[]}
+        stationId={id}
+        features={currentRawPoint?.features ?? null}
         stationName={station.name}
-        primaryPollutant="pm25"
+        primaryPollutant={currentPoint?.primary ?? "pm25"}
         baseValue={14.5}
       />
     </div>
 
-    <div class="lg:col-span-4 glass-card p-5">
+    <div class="lg:col-span-4 glass-card p-5 relative overflow-hidden">
+      <div class="absolute top-0 inset-x-0 h-0.5" style={`background: ${iqarHex(currentPoint?.classification)}`}></div>
       <h3 class="text-base font-bold text-slate-800 mb-3">Recomendações de Saúde</h3>
       <p class="text-xs text-slate-600 leading-relaxed mb-4">
-        Conforme a Resolução CONAMA nº 491/2018 para a faixa <strong>{currentPoint.classification}</strong>:
+        Conforme a Resolução CONAMA nº 491/2018 para a faixa <strong>{currentPoint?.classification ?? "—"}</strong>:
       </p>
-      <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs text-slate-600 leading-relaxed">
-        {currentPoint.classification === 'Boa'
-          ? 'Qualidade do ar considerada satisfatória. Não há restrições para atividades ao ar livre.'
-          : 'Pessoas de grupos sensíveis (crianças, idosos, asmáticos e cardiopatas) podem apresentar sintomas como tosse e cansaço. Recomenda-se evitar esforço intenso ao ar livre.'}
+      <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs text-slate-700 leading-relaxed">
+        {iqarAdvice(currentPoint?.classification)}
       </div>
 
       <div class="mt-6 pt-4 border-t border-slate-200 text-xs text-slate-500 space-y-2">

@@ -17,6 +17,13 @@
 
 /wasm/*
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+  Cross-Origin-Resource-Policy: same-origin
+
+/wasm/*.mjs
+  Content-Type: text/javascript; charset=utf-8
+
+/wasm/*.wasm
+  Content-Type: application/wasm
 
 /*.png
   Cache-Control: public, max-age=604800
@@ -29,3 +36,4 @@
 
 /service-worker.js
   Cache-Control: no-cache, no-store, must-revalidate
+  Service-Worker-Allowed: /

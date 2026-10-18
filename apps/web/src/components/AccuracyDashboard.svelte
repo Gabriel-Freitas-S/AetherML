@@ -13,6 +13,7 @@ import {
 	pm25R2Diagnosis,
 	rolloutClaim,
 } from "../lib/eval-claims";
+import { loadStationId, saveStationId } from "../lib/location";
 import CompareChart from "./CompareChart.svelte";
 import StationPicker from "./StationPicker.svelte";
 
@@ -128,12 +129,19 @@ const stationIds = $derived.by(() => (data ? Object.keys(data.series) : []));
 const active = $derived.by(() => data?.series[stationId] || null);
 
 onMount(async () => {
+	const saved = loadStationId();
+	if (saved && (!data || data.series[saved])) {
+		stationId = saved;
+	}
 	try {
 		const res = await fetch("/data/model-eval.json");
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const payload: EvalPayload = await res.json();
 		data = payload;
-		if (!payload.series[stationId]) stationId = Object.keys(payload.series)[0];
+		const preferred = loadStationId() ?? stationId;
+		stationId = payload.series[preferred]
+			? preferred
+			: Object.keys(payload.series)[0];
 	} catch {
 		if (!data) {
 			loadError = "Falha ao carregar o backtest. Verifique sua conexão.";
@@ -304,7 +312,10 @@ function fmtDate(iso: string): string {
         <StationPicker
           stations={stationIds.map((id) => ({ id, name: data.series[id].name, municipality: "" }))}
           activeId={stationId}
-          onChange={(id) => (stationId = id)}
+          onChange={(id) => {
+            stationId = id;
+            saveStationId(id);
+          }}
           label="Estação do comparativo"
         />
       </div>

@@ -1,6 +1,6 @@
 <!-- apps/web/src/components/Map.svelte — Mapa Leaflet com estações RAMQAr, basemap CARTO (rastertiles + ?key=) e GPS inteligente -->
 <script lang="ts">
-import { getStationCoords, nearestStation } from "@aetherml/geo";
+import { getStationCoords } from "@aetherml/geo";
 import { onMount } from "svelte";
 import {
 	BASEMAP_LABELS,
@@ -16,7 +16,14 @@ import {
 	iqarBand,
 } from "../lib/comparison";
 import { formatConcentration } from "../lib/dashboard-sections";
-import { loadBasemap, saveBasemap } from "../lib/location";
+import {
+	formatGpsError,
+	getUserPosition,
+	loadBasemap,
+	resolveGpsNearest,
+	saveBasemap,
+	saveStationId,
+} from "../lib/location";
 
 interface StationWithStatus {
 	id: string;
@@ -47,7 +54,11 @@ const {
 }: {
 	stations: StationWithStatus[];
 	selectedStationId?: string;
-	onSelectStation?: (id: string) => void;
+	onSelectStation?: (
+		id: string,
+		origin?: "manual" | "gps",
+		distanceKm?: number | null,
+	) => void;
 } = $props();
 
 let mapContainer: HTMLDivElement;
@@ -148,7 +159,8 @@ function buildMarkers() {
 			{ closeButton: false, offset: [0, -6] },
 		);
 		m.on("click", () => {
-			if (onSelectStation) onSelectStation(s.id);
+			saveStationId(s.id);
+			onSelectStation?.(s.id, "manual", null);
 		});
 		markers[s.id] = m;
 	});
@@ -166,44 +178,40 @@ function setBasemap(style: BasemapStyle) {
 			: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
 		subdomains: isOsm ? "abc" : "abcd",
 		maxZoom: 19,
-		crossOrigin: true,
 	}).addTo(map);
 }
 
 async function locateUser() {
 	locateError = null;
-	if (!("geolocation" in navigator)) {
-		locateError = "Geolocalização não suportada neste navegador.";
+	if (!stations.length) {
+		locateError = "Lista de estações ainda não carregada.";
 		return;
 	}
 	locating = true;
 	try {
-		const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
-			navigator.geolocation.getCurrentPosition(resolve, reject, {
-				enableHighAccuracy: false,
-				timeout: 9000,
-				maximumAge: 300000,
-			}),
-		);
-		const { latitude, longitude, accuracy } = pos.coords;
-		const nearest = nearestStation(latitude, longitude, stations as any);
+		const pos = await getUserPosition(9000);
+		const nearest = resolveGpsNearest(pos, stations);
+		if (!nearest) {
+			locateError = "Não foi possível determinar a estação mais próxima.";
+			return;
+		}
 		userLocation = {
-			lat: latitude,
-			lon: longitude,
-			nearestId: nearest.station.id,
-			distance: Math.round(nearest.distanceKm * 10) / 10,
+			lat: pos.lat,
+			lon: pos.lon,
+			nearestId: nearest.stationId,
+			distance: nearest.distanceKm,
 		};
 		if (map && Leaflet) {
 			if (userMarker) map.removeLayer(userMarker);
 			if (userCircle) map.removeLayer(userCircle);
-			userCircle = Leaflet.circle([latitude, longitude], {
-				radius: Math.min(Math.max(accuracy ?? 60, 40), 400),
+			userCircle = Leaflet.circle([pos.lat, pos.lon], {
+				radius: Math.min(Math.max(pos.accuracyM ?? 60, 40), 400),
 				color: "#38bdf8",
 				weight: 1,
 				fillColor: "#38bdf8",
 				fillOpacity: 0.12,
 			}).addTo(map);
-			userMarker = Leaflet.marker([latitude, longitude], {
+			userMarker = Leaflet.marker([pos.lat, pos.lon], {
 				icon: Leaflet.divIcon({
 					className: "aq-user-wrap",
 					html: `<div class="aq-user-dot"><span></span></div>`,
@@ -212,14 +220,14 @@ async function locateUser() {
 				}),
 				zIndexOffset: 2000,
 			}).addTo(map);
-			map.flyTo([latitude, longitude], 13, { duration: 0.9 });
-			const target = markers[nearest.station.id];
+			map.flyTo([pos.lat, pos.lon], 13, { duration: 0.9 });
+			const target = markers[nearest.stationId];
 			if (target) window.setTimeout(() => target.openPopup(), 950);
 		}
-		if (onSelectStation) onSelectStation(nearest.station.id);
-	} catch {
-		locateError =
-			"Não foi possível obter sua localização. Verifique a permissão do navegador.";
+		saveStationId(nearest.stationId);
+		onSelectStation?.(nearest.stationId, "gps", nearest.distanceKm);
+	} catch (err: unknown) {
+		locateError = formatGpsError(err);
 	} finally {
 		locating = false;
 	}
@@ -270,26 +278,23 @@ $effect(() => {
 });
 </script>
 
-<div class="relative w-full h-[340px] sm:h-[460px] rounded-2xl overflow-hidden glass-card ring-1 ring-slate-200">
+<div class="relative w-full h-[380px] sm:h-[460px] rounded-2xl overflow-hidden glass-card ring-1 ring-slate-200">
   <!-- Container do Leaflet -->
   <div bind:this={mapContainer} class="w-full h-full z-0"></div>
 
   <!-- Cabeçalho: rede + seletor de basemap -->
-  <div class="absolute top-3 left-3 z-[400] flex flex-col gap-2 max-w-[240px]">
-    <div class="bg-white/92 border border-slate-200 backdrop-blur-xl rounded-xl px-3 py-2.5 shadow-xl">
+  <div class="absolute top-2.5 left-2.5 sm:top-3 sm:left-3 z-[400] flex flex-col gap-1.5 sm:gap-2 max-w-[232px] sm:max-w-[244px]">
+    <div class="bg-white/94 border border-slate-200 backdrop-blur-xl rounded-xl px-2.5 py-2 sm:px-3 sm:py-2.5 shadow-xl">
       <div class="font-bold text-slate-800 text-xs flex items-center gap-1.5">
         <span class="w-2 h-2 rounded-full bg-sky-600"></span>
         Rede RAMQAr (IEMA/ES)
       </div>
-      <div class="text-slate-500 text-[11px] mt-0.5">9 estações · CAMS regional + meteo local (MOS in-situ pendente)</div>
-      <!-- Seletor de basemap CARTO. `min-h-[32px]` medido a 360px entregava um
-           alvo de toque de 32px — o único controle do produto abaixo da norma de
-           44px (nav, abas, seletor de estação e opções de poluente já são
-           `min-h-[44px]`). A linha dos quatro botões é horizontal, então subir a
-           altura custa 12px na altura do overlay, não na largura. -->
-      <div class="flex gap-1 mt-2 bg-slate-100 border border-slate-200 rounded-lg p-1">
+      <div class="hidden sm:block text-slate-500 text-[11px] mt-0.5">9 estações · CAMS regional + meteo local (MOS in-situ pendente)</div>
+      <!-- Seletor de basemap CARTO: alvo de toque mínimo de 44px em todas as larguras -->
+      <div class="flex gap-1 mt-1.5 sm:mt-2 bg-slate-100 border border-slate-200 rounded-lg p-1">
         {#each BASEMAP_STYLES as style}
           <button
+            type="button"
             onclick={() => setBasemap(style)}
             title="Basemap {BASEMAP_LABELS[style]} (CARTO)"
             class={basemap === style
@@ -304,9 +309,10 @@ $effect(() => {
 
     <!-- Botão de Geolocalização -->
     <button
+      type="button"
       onclick={locateUser}
       disabled={locating}
-      class="btn-ghost !bg-white/92 backdrop-blur-xl shadow-xl disabled:opacity-60 min-h-[44px] cursor-pointer"
+      class="btn-ghost !bg-white/94 backdrop-blur-xl shadow-xl disabled:opacity-60 min-h-[44px] cursor-pointer"
     >
       {#if locating}
         <span class="i-ph-spinner-bold w-4 h-4 animate-spin"></span>
@@ -317,26 +323,37 @@ $effect(() => {
       {/if}
     </button>
     {#if locateError}
-      <div class="bg-red-50 border border-red-200 backdrop-blur-xl rounded-xl px-3 py-2 shadow-xl text-[11px] text-red-700">
-        {locateError}
+      <div class="bg-amber-50/95 border border-amber-200 backdrop-blur-xl rounded-xl px-2.5 py-2 shadow-xl text-[11px] text-amber-900 flex items-start justify-between gap-1.5" role="alert">
+        <div class="flex items-start gap-1.5 min-w-0">
+          <span class="i-ph-warning-circle-fill w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5"></span>
+          <span class="leading-snug">{locateError}</span>
+        </div>
+        <button
+          type="button"
+          onclick={() => (locateError = null)}
+          class="text-amber-700 hover:text-amber-950 p-1 rounded hover:bg-amber-100/70 transition-colors cursor-pointer shrink-0"
+          aria-label="Dispensar aviso de localização no mapa"
+        >
+          <span class="i-ph-x-bold w-3 h-3"></span>
+        </button>
       </div>
     {/if}
   </div>
 
   <!-- Legenda IQAr: glifo + cor + nome por faixa (a categoria nunca fica só na cor)
-       e, abaixo, a leitura secundária neutra do pin. -->
-  <div class="absolute bottom-3 left-3 z-[400] bg-white/92 border border-slate-200 backdrop-blur-xl rounded-xl px-3 py-2 shadow-xl">
-    <div class="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-1.5">Faixa IQAr</div>
-    <div class="grid grid-cols-3 gap-x-2.5 gap-y-1 text-[10px] font-semibold text-slate-600">
+       e, em telas >= sm, a leitura secundária neutra do pin. -->
+  <div class="absolute bottom-2.5 left-2.5 sm:bottom-3 sm:left-3 z-[400] bg-white/94 border border-slate-200 backdrop-blur-xl rounded-xl px-2.5 py-1.5 sm:px-3 sm:py-2 shadow-xl max-w-[232px] sm:max-w-none">
+    <div class="text-[10px] font-bold uppercase tracking-widest text-slate-600 mb-1">Faixa IQAr</div>
+    <div class="grid grid-cols-3 gap-x-2 gap-y-1 text-[10px] font-semibold text-slate-700">
       {#each IQAR_BANDS as band}
         <span class="flex items-center gap-1">
           <span class="{band.icon} w-3 h-3 shrink-0" style="color: {band.text}"></span>
-          <i class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background:{band.hex}"></i>
+          <i class="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full inline-block shrink-0" style="background:{band.hex}"></i>
           <span>{band.label}</span>
         </span>
       {/each}
     </div>
-    <div class="mt-1.5 pt-1.5 border-t border-slate-200 text-[10px] leading-snug text-slate-500 max-w-[230px]">
+    <div class="hidden sm:block mt-1.5 pt-1.5 border-t border-slate-200 text-[10px] leading-snug text-slate-500 max-w-[230px]">
       Pin: <strong class="font-mono text-slate-700">IQAr</strong> da faixa ·
       <strong class="font-mono text-slate-700">concentração µg/m³</strong> do poluente dominante, em cinza.
     </div>
@@ -344,8 +361,8 @@ $effect(() => {
 
   <!-- Alerta de Localização do Usuário -->
   {#if userLocation}
-    <div class="absolute left-3 right-3 bottom-16 sm:left-auto sm:right-3 sm:bottom-auto sm:top-3 z-[400] bg-sky-50/95 border border-sky-200 backdrop-blur-xl rounded-xl px-3 py-2 shadow-xl text-xs text-sky-900 sm:max-w-[240px]">
-      Você está a <strong>{userLocation.distance} km</strong> de
+    <div class="absolute left-2.5 right-12 bottom-20 sm:left-auto sm:right-3 sm:bottom-auto sm:top-3 z-[400] bg-sky-50/95 border border-sky-200 backdrop-blur-xl rounded-xl px-3 py-2 shadow-xl text-xs text-sky-900 sm:max-w-[240px]">
+      Você está a <strong class="font-mono">{userLocation.distance} km</strong> de
       <strong>{stations.find((s) => s.id === userLocation?.nearestId)?.name}</strong>.
     </div>
   {/if}

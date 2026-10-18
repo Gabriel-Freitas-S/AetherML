@@ -265,7 +265,7 @@ export class AetherInferenceClient {
 				type: "explain",
 				stationId: params.stationId,
 				requestId: reqId,
-				features: params.features,
+				features: Array.from(params.features),
 				target: params.target,
 			});
 		});

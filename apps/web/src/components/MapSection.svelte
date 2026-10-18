@@ -10,6 +10,8 @@
      que ninguém pediu. O pin e o cartão da lista se destacam entre si; o link
      leva à página da estação. -->
 <script lang="ts">
+import { globalIQAr } from "@aetherml/core-iqar";
+import { onMount } from "svelte";
 import {
 	CONCENTRATION_UNIT,
 	POLLUTANT_LABEL,
@@ -18,7 +20,12 @@ import {
 	iqarAdvice,
 	iqarIcon,
 } from "../lib/comparison";
-import { formatConcentration } from "../lib/dashboard-sections";
+import { currentPoint } from "../lib/current-point";
+import {
+	dominantConcentration,
+	formatConcentration,
+} from "../lib/dashboard-sections";
+import { loadStationId, saveStationId } from "../lib/location";
 import RmgvMap from "./Map.svelte";
 
 interface MapStation {
@@ -37,10 +44,59 @@ interface MapStation {
 
 const { stations = [] }: { stations?: MapStation[] } = $props();
 
-let selectedId = $state<string>("");
+let fetchedStations = $state<MapStation[]>([]);
+const activeStations = $derived(
+	stations.length > 0 ? stations : fetchedStations,
+);
+
+let selectedId = $state<string>(stations[0]?.id ?? "ramqar_camburi");
+
+onMount(async () => {
+	let list = stations;
+	if (list.length === 0) {
+		try {
+			const res = await fetch("/data/stations-data.json");
+			if (res.ok) {
+				const bundle = (await res.json()) as Record<string, any>;
+				const nowMs = Date.now();
+				list = Object.values(bundle)
+					.map((item: any) => {
+						const picked = currentPoint(item?.points ?? [], nowMs);
+						if (!picked) return null;
+						const iqarRes = globalIQAr(picked.point.observed);
+						return {
+							id: item.station.id,
+							name: item.station.name,
+							municipality: item.station.municipality,
+							latitude: item.station.latitude ?? item.station.lat,
+							longitude: item.station.longitude ?? item.station.lon,
+							iqar: iqarRes.iqar,
+							classification: iqarRes.classification,
+							primary: iqarRes.primary,
+							concentration: dominantConcentration(
+								picked.point.observed,
+								iqarRes.primary,
+							),
+						} as MapStation;
+					})
+					.filter((s): s is MapStation => s !== null);
+				fetchedStations = list;
+			}
+		} catch {
+			/* fallback silencioso */
+		}
+	}
+	const saved = loadStationId();
+	if (saved && list.some((s) => s.id === saved)) {
+		selectedId = saved;
+	} else if (list[0]?.id) {
+		selectedId = list[0].id;
+	}
+});
 
 function select(id: string) {
 	selectedId = id;
+	saveStationId(id);
 }
 
 function pollutantLabel(primary?: string): string {
@@ -57,7 +113,7 @@ function pollutantLabel(primary?: string): string {
       Rede de Monitoramento da Qualidade do Ar (RAMQAr)
     </h1>
     <p class="text-slate-500 text-sm mt-1">
-      Distribuição geográfica das {stations.length} estações na Grande Vitória. O pin traz o
+      Distribuição geográfica das {activeStations.length} estações na Grande Vitória. O pin traz o
       IQAr (faixa) e, embaixo dele, a concentração real em {CONCENTRATION_UNIT} do poluente
       dominante — é ela que mostra a diferença entre estações quando o índice arredonda.
     </p>
@@ -66,12 +122,12 @@ function pollutantLabel(primary?: string): string {
 
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 anim-fade-up-d1 mt-6">
   <div class="lg:col-span-2">
-    <RmgvMap stations={stations} selectedStationId={selectedId} onSelectStation={select} />
+    <RmgvMap stations={activeStations} selectedStationId={selectedId} onSelectStation={select} />
   </div>
 
-  <div class="glass-card p-4 space-y-3 max-h-[340px] lg:max-h-[460px] overflow-y-auto">
-    <h3 class="text-xs uppercase font-bold text-slate-400 tracking-wider">Estações de Monitoramento</h3>
-    {#each stations as s (s.id)}
+  <div class="glass-card p-4 space-y-3 max-h-[380px] lg:max-h-[460px] overflow-y-auto">
+    <h3 class="text-xs uppercase font-bold text-slate-500 tracking-wider">Estações de Monitoramento</h3>
+    {#each activeStations as s (s.id)}
       {@const active = selectedId === s.id}
       <div
         class="bg-white p-3 rounded-xl border transition-all {active

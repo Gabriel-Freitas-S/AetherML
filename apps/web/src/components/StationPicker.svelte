@@ -30,7 +30,7 @@ function close() {
 }
 function pick(id: string) {
 	close();
-	if (id !== activeId) onChange?.(id);
+	onChange?.(id);
 }
 function onKey(e: KeyboardEvent) {
 	if (e.key === "Escape") close();
