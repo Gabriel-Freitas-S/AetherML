@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from ml.evaluation.evaluate_weekly import (
     build_weekly_evaluation_records,
     compute_feature_psi,
+    derive_promoted_targets,
     evaluate_predictions,
     fetch_d1_to_file,
     install_d1_retrain_compat,
@@ -477,6 +478,64 @@ def test_run_weekly_evaluation_end_to_end():
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+def test_derive_promoted_targets_le_versao_por_poluente_do_registry():
+    """Regressão do gate de persistência do retrain (workflow retrain.yml).
+
+    O bridge lia `active_by_target` — campo que nenhum código do repo escreve. O
+    schema real (ml/training/registry.py::update_registry_paired) grava a versão
+    ativa por poluente em `models.<target>.version`; com o campo fantasma,
+    promoted_targets vinha SEMPRE [] → `promoted=false` no GITHUB_OUTPUT → R2,
+    regeneração de artefatos, commit, build e deploy silenciosamente skipados
+    (run 39169775742 promoveu 4/5 poluentes no runner e nada foi persistido).
+    """
+    registry = {
+        "active_version": "v2026.42.1",
+        "targets": ["pm25", "pm10", "o3", "no2", "so2"],
+        "models": {
+            "pm25": {"version": "v2026.42.1"},
+            "pm10": {"version": "v2026.42.1"},
+            "o3": {"version": "v2026.42.1"},
+            "no2": {"version": "v2026.42.1"},
+            "so2": {"version": "v2026.38.5"},
+        },
+    }
+    assert derive_promoted_targets(registry, "v2026.42.1") == ["pm25", "pm10", "o3", "no2"]
+
+
+def test_derive_promoted_targets_sem_promocao_retorna_vazio():
+    registry = {
+        "active_version": "v2026.38.5",
+        "targets": ["pm25", "so2"],
+        "models": {
+            "pm25": {"version": "v2026.38.5"},
+            "so2": {"version": "v2026.38.5"},
+        },
+    }
+    assert derive_promoted_targets(registry, "v2026.42.1") == []
+
+
+def test_derive_promoted_targets_robusto_e_ordem_deterministica():
+    # Registry vazio / models inválido / meta inválida: nada promovido, sem exceção
+    assert derive_promoted_targets({}, "v2026.42.1") == []
+    assert derive_promoted_targets({"models": None}, "v2026.42.1") == []
+    assert derive_promoted_targets({"models": {"pm25": None}}, "v2026.42.1") == []
+    # Ordem determinística: `targets` canônico primeiro; demais chaves de models depois
+    registry = {
+        "targets": ["so2", "pm25"],
+        "models": {
+            "pm25": {"version": "v1"},
+            "so2": {"version": "v1"},
+            "o3": {"version": "v1"},
+        },
+    }
+    assert derive_promoted_targets(registry, "v1") == ["so2", "pm25", "o3"]
+    # Chave extra em models fora de targets ainda é considerada
+    assert derive_promoted_targets(
+        {"targets": ["so2"], "models": {"so2": {"version": "v2"}, "pm25": {"version": "v2"}}},
+        "v2",
+    ) == ["so2", "pm25"]
+
+
 if __name__ == "__main__":
     test_evaluate_predictions_stable_and_drift_gates()
     test_compute_feature_psi()
@@ -485,6 +544,9 @@ if __name__ == "__main__":
     test_install_d1_retrain_compat_and_fetch_d1_only()
     test_next_model_version_and_supplement_d1_with_history()
     test_run_weekly_evaluation_end_to_end()
-    print("[OK] test_evaluate_weekly: 7/7 verdes")
+    test_derive_promoted_targets_le_versao_por_poluente_do_registry()
+    test_derive_promoted_targets_sem_promocao_retorna_vazio()
+    test_derive_promoted_targets_robusto_e_ordem_deterministica()
+    print("[OK] test_evaluate_weekly: 10/10 verdes")
 
 
