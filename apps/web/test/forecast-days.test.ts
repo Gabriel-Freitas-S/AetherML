@@ -10,6 +10,7 @@ import {
 	formatDayCardLabel,
 	formatStaleNotice,
 	getLocalDateStr,
+	normalizeOpenMeteoTimestamp,
 } from "../src/lib/forecast-days.ts";
 
 interface FakePoint {
@@ -291,4 +292,26 @@ test("buildFiveDayCards: separa referência atual da série do horizonte final (
 	);
 	assert.notEqual(age.ageText, "em 4 dias");
 	assert.notEqual(age.ageText, "em 5 dias");
+});
+
+test("normalizeOpenMeteoTimestamp: anexa offset -03:00 em tempos locais da API Open-Meteo (FYI-2)", () => {
+	// Tempos locais retornados com timezone=America/Sao_Paulo (ex: "2026-10-18T10:00")
+	assert.equal(
+		normalizeOpenMeteoTimestamp("2026-10-18T10:00"),
+		"2026-10-18T10:00:00-03:00",
+	);
+	assert.equal(
+		normalizeOpenMeteoTimestamp("2026-10-18T10:00:00"),
+		"2026-10-18T10:00:00-03:00",
+	);
+
+	// Timestamps que já trazem Z ou offset não devem ser alterados
+	assert.equal(
+		normalizeOpenMeteoTimestamp("2026-10-18T13:00:00Z"),
+		"2026-10-18T13:00:00Z",
+	);
+	assert.equal(
+		normalizeOpenMeteoTimestamp("2026-10-18T10:00:00-03:00"),
+		"2026-10-18T10:00:00-03:00",
+	);
 });

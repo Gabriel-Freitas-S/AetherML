@@ -41,17 +41,6 @@ const points = data.points.map((p: any) => {
 // do Dashboard, para que as três telas nunca mostrem números diferentes.
 const currentPoint = pickCurrentPoint(points, Date.now())?.point ?? null;
 
-const saabasExample = [
-	{ feature: "wind_direction", phi: station.downwind_tubarao ? 14.2 : 3.1 },
-	{ feature: "boundary_layer_height", phi: 5.8 },
-	{
-		feature: "traffic_congestion_index",
-		phi: station.bridge_proximity ? 12.5 : 4.0,
-	},
-	{ feature: "satellite_aod", phi: 2.3 },
-	{ feature: "wind_speed", phi: -4.8 },
-];
-
 // Toda a lógica de dia local, rótulo de cartão e estado "desatualizado" vive em
 // ../../lib/forecast-days — é a mesma cópia usada pelo Dashboard.svelte.
 const {
@@ -201,7 +190,7 @@ function iqarIcon(cls?: string): string {
     <div class="lg:col-span-8">
       <Waterfall
         client:visible
-        contributions={saabasExample}
+        contributions={[]}
         stationName={station.name}
         primaryPollutant="pm25"
         baseValue={14.5}

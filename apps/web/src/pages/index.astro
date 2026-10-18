@@ -43,6 +43,7 @@ const defaultStationData = bundle[defaultStationId];
 
 // Metadados leves p/ o seletor e o GPS (sem os 120 pontos — o bundle completo é buscado no cliente)
 const stationsMeta = Object.values(bundle).map((item) => ({
+	...item.station,
 	id: item.station.id,
 	name: item.station.name,
 	municipality: item.station.municipality,
@@ -51,6 +52,8 @@ const stationsMeta = Object.values(bundle).map((item) => ({
 	coastal: item.station.coastal,
 	downwind_tubarao: item.station.downwind_tubarao,
 	bridge_proximity: item.station.bridge_proximity,
+	traffic_heavy: item.station.traffic_heavy,
+	urban_canyon: item.station.urban_canyon,
 }));
 
 // As 9 estações com IQAr + concentração do poluente dominante, calculadas NO

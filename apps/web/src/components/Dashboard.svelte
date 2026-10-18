@@ -22,7 +22,11 @@ import {
 } from "../lib/comparison";
 import { currentPoint as pickCurrentPoint } from "../lib/current-point";
 import { dominantConcentration } from "../lib/dashboard-sections";
-import { buildFiveDayCards, describeDataAge } from "../lib/forecast-days";
+import {
+	buildFiveDayCards,
+	describeDataAge,
+	normalizeOpenMeteoTimestamp,
+} from "../lib/forecast-days";
 import {
 	getUserPosition,
 	loadStationId,
@@ -52,6 +56,9 @@ interface StationMeta {
 	coastal?: boolean;
 	downwind_tubarao?: boolean;
 	bridge_proximity?: boolean;
+	traffic_heavy?: boolean;
+	urban_canyon?: boolean;
+	[key: string]: any;
 }
 
 const {
@@ -98,6 +105,8 @@ const points = $derived.by(() => {
 		return {
 			hour: p.hour,
 			timestamp: p.timestamp,
+			features: p.features,
+			observed: p.observed,
 			...p.observed,
 			iqar: res.iqar,
 			classification: res.classification,
@@ -195,6 +204,39 @@ const saabasPrimary = $derived(
 	currentSaabas?.primaryPollutant ?? currentPoint?.primary ?? "pm25",
 );
 
+// XAI no caminho normal: calcula decomposição Saabas se o ponto do bundle possuir features
+$effect(() => {
+	const stId = activeId;
+	const curr = currentPick?.point as any;
+	if (!curr || !curr.features || saabasByStation[stId]) return;
+
+	const client = getInferenceClient();
+	if (!client) return;
+
+	client
+		.waitForReady()
+		.then(() =>
+			client.explain({
+				stationId: stId,
+				features: curr.features as number[],
+				target: curr.primary ?? "pm25",
+			}),
+		)
+		.then((res) => {
+			saabasByStation = {
+				...saabasByStation,
+				[stId]: {
+					contributions: res.contributions,
+					baseValue: res.baseValue,
+					primaryPollutant: res.target,
+				},
+			};
+		})
+		.catch((err) => {
+			console.warn(`[Dashboard] Falha ao explicar ponto para ${stId}:`, err);
+		});
+});
+
 const activeStation = $derived.by(() => stationWithFlags(activeId));
 
 // Linha de abertura unificada: coerente com o estado do modelo e proveniência.
@@ -208,6 +250,8 @@ const leadLine = $derived(
 		origin: activeOrigin,
 	}),
 );
+
+const inFlightStations = new Set<string>();
 
 function applyStation(
 	id: string,
@@ -224,7 +268,9 @@ function applyStation(
 	const pts = bundle?.[id]?.points;
 	const lastPt = pts?.[pts.length - 1];
 	if (lastPt && new Date(lastPt.timestamp).getTime() < Date.now()) {
-		fetchLiveOpenMeteoFallback(id);
+		if (!inFlightStations.has(id)) {
+			fetchLiveOpenMeteoFallback(id);
+		}
 	}
 }
 
@@ -286,130 +332,139 @@ function getInferenceClient(): AetherInferenceClient | null {
 }
 
 async function fetchLiveOpenMeteoFallback(targetId: string) {
-	const st = stationsMeta.find((s) => s.id === targetId) ?? stationsMeta[0];
-	if (!st) return;
-	const lat = st.lat ?? st.latitude ?? -20.2764;
-	const lon = st.lon ?? st.longitude ?? -40.2881;
-	const flags: StationFlags = {
-		coastal: Boolean(st.coastal),
-		downwind_tubarao: Boolean(st.downwind_tubarao),
-		bridge_proximity: Boolean(st.bridge_proximity),
-	};
-
-	let aqHourly: any = null;
-
+	if (inFlightStations.has(targetId)) return;
+	inFlightStations.add(targetId);
 	try {
-		const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide&past_days=2&forecast_days=6&timezone=UTC`;
-		const meteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,pressure_msl,shortwave_radiation,boundary_layer_height&past_days=2&forecast_days=6&timezone=UTC`;
+		const st = stationsMeta.find((s) => s.id === targetId) ?? stationsMeta[0];
+		if (!st) return;
+		const lat = st.lat ?? st.latitude ?? -20.2764;
+		const lon = st.lon ?? st.longitude ?? -40.2881;
+		const flags: StationFlags = {
+			...st,
+			coastal: Boolean(st.coastal),
+			downwind_tubarao: Boolean(st.downwind_tubarao),
+			bridge_proximity: Boolean(st.bridge_proximity),
+			traffic_heavy: Boolean(st.traffic_heavy),
+			urban_canyon: Boolean(st.urban_canyon),
+		};
 
-		const [aqRes, meteoRes] = await Promise.all([
-			fetch(aqUrl),
-			fetch(meteoUrl),
-		]);
-		if (!aqRes.ok || !meteoRes.ok) {
-			throw new Error(`Open-Meteo HTTP ${aqRes.status}/${meteoRes.status}`);
+		let aqHourly: any = null;
+
+		try {
+			const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide&past_days=2&forecast_days=6&timezone=UTC`;
+			const meteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,pressure_msl,shortwave_radiation,boundary_layer_height&past_days=2&forecast_days=6&timezone=UTC`;
+
+			const [aqRes, meteoRes] = await Promise.all([
+				fetch(aqUrl),
+				fetch(meteoUrl),
+			]);
+			if (!aqRes.ok || !meteoRes.ok) {
+				throw new Error(`Open-Meteo HTTP ${aqRes.status}/${meteoRes.status}`);
+			}
+			const [aqData, meteoData] = await Promise.all([
+				aqRes.json(),
+				meteoRes.json(),
+			]);
+			aqHourly = aqData.hourly;
+			const meteoHourly = meteoData.hourly;
+
+			if (!aqHourly?.time?.length || !meteoHourly?.time?.length) {
+				throw new Error("Payload vazio da API Open-Meteo");
+			}
+
+			// Tenta rodar a inferência dos 5 modelos no navegador via Web Worker (WASM SIMD)
+			const client = getInferenceClient();
+			if (!client) {
+				throw new Error("Cliente de inferência indisponível");
+			}
+
+			const nowIso = new Date().toISOString();
+			const result = await client.predictForecast({
+				stationId: targetId,
+				flags,
+				meteo: meteoHourly,
+				aq: aqHourly,
+				cutoff: nowIso,
+				hours: 120,
+			});
+
+			if (result.points?.length && bundle) {
+				bundle[targetId] = {
+					station: st,
+					points: result.points,
+				};
+				bundle = { ...bundle };
+				originByStation = { ...originByStation, [targetId]: "ml" };
+				inferenceNoticeByStation = {
+					...inferenceNoticeByStation,
+					[targetId]: "inferência no navegador (WASM)",
+				};
+				saabasByStation = {
+					...saabasByStation,
+					[targetId]: {
+						contributions: result.saabas || [],
+						baseValue: result.baseValue ?? 15.0,
+						primaryPollutant: result.points[0]?.primary ?? "pm25",
+					},
+				};
+				return;
+			}
+		} catch (err) {
+			console.warn(
+				"[LiveFallback] Inferência no navegador indisponível ou falhou, caindo no fallback bruto Open-Meteo:",
+				err,
+			);
 		}
-		const [aqData, meteoData] = await Promise.all([
-			aqRes.json(),
-			meteoRes.json(),
-		]);
-		aqHourly = aqData.hourly;
-		const meteoHourly = meteoData.hourly;
 
-		if (!aqHourly?.time?.length || !meteoHourly?.time?.length) {
-			throw new Error("Payload vazio da API Open-Meteo");
+		// Fallback bruto: exibe os pontos diretos da API apenas se a inferência falhar
+		try {
+			if (!aqHourly?.time?.length) {
+				const fallbackUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide&past_days=1&forecast_days=6&timezone=America%2FSao_Paulo`;
+				const res = await fetch(fallbackUrl);
+				if (!res.ok) return;
+				const data = await res.json();
+				aqHourly = data.hourly;
+			}
+			if (!aqHourly?.time?.length) return;
+
+			const pts = aqHourly.time.map((t: string, i: number) => {
+				const ts = normalizeOpenMeteoTimestamp(t);
+				return {
+					hour: i,
+					timestamp: ts,
+					observed: {
+						pm25: aqHourly.pm2_5?.[i] ?? 10,
+						pm10: aqHourly.pm10?.[i] ?? 15,
+						o3: aqHourly.ozone?.[i] ?? 30,
+						no2: aqHourly.nitrogen_dioxide?.[i] ?? 12,
+						so2: aqHourly.sulphur_dioxide?.[i] ?? 5,
+					},
+				};
+			});
+
+			if (bundle) {
+				bundle[targetId] = {
+					station: st,
+					points: pts,
+				};
+				bundle = { ...bundle };
+				originByStation = { ...originByStation, [targetId]: "open-meteo" };
+				const newNotices = { ...inferenceNoticeByStation };
+				delete newNotices[targetId];
+				inferenceNoticeByStation = newNotices;
+
+				const newSaabas = { ...saabasByStation };
+				delete newSaabas[targetId];
+				saabasByStation = newSaabas;
+			}
+		} catch (err) {
+			console.warn(
+				"[LiveFallback] Falha total ao consultar Open-Meteo ao vivo:",
+				err,
+			);
 		}
-
-		// Tenta rodar a inferência dos 5 modelos no navegador via Web Worker (WASM SIMD)
-		const client = getInferenceClient();
-		if (!client) {
-			throw new Error("Cliente de inferência indisponível");
-		}
-
-		const nowIso = new Date().toISOString();
-		const result = await client.predictForecast({
-			stationId: targetId,
-			flags,
-			meteo: meteoHourly,
-			aq: aqHourly,
-			cutoff: nowIso,
-			hours: 120,
-		});
-
-		if (result.points?.length && bundle) {
-			bundle[targetId] = {
-				station: st,
-				points: result.points,
-			};
-			bundle = { ...bundle };
-			originByStation = { ...originByStation, [targetId]: "ml" };
-			inferenceNoticeByStation = {
-				...inferenceNoticeByStation,
-				[targetId]: "inferência no navegador (WASM)",
-			};
-			saabasByStation = {
-				...saabasByStation,
-				[targetId]: {
-					contributions: result.saabas || [],
-					baseValue: result.baseValue ?? 15.0,
-					primaryPollutant: result.points[0]?.primary ?? "pm25",
-				},
-			};
-			return;
-		}
-	} catch (err) {
-		console.warn(
-			"[LiveFallback] Inferência no navegador indisponível ou falhou, caindo no fallback bruto Open-Meteo:",
-			err,
-		);
-	}
-
-	// Fallback bruto: exibe os pontos diretos da API apenas se a inferência falhar
-	try {
-		if (!aqHourly?.time?.length) {
-			const fallbackUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide&past_days=1&forecast_days=6&timezone=America%2FSao_Paulo`;
-			const res = await fetch(fallbackUrl);
-			if (!res.ok) return;
-			const data = await res.json();
-			aqHourly = data.hourly;
-		}
-		if (!aqHourly?.time?.length) return;
-
-		const pts = aqHourly.time.map((t: string, i: number) => {
-			const ts = t.endsWith("Z") ? t : `${t}:00Z`;
-			return {
-				hour: i,
-				timestamp: ts,
-				observed: {
-					pm25: aqHourly.pm2_5?.[i] ?? 10,
-					pm10: aqHourly.pm10?.[i] ?? 15,
-					o3: aqHourly.ozone?.[i] ?? 30,
-					no2: aqHourly.nitrogen_dioxide?.[i] ?? 12,
-					so2: aqHourly.sulphur_dioxide?.[i] ?? 5,
-				},
-			};
-		});
-
-		if (bundle) {
-			bundle[targetId] = {
-				station: st,
-				points: pts,
-			};
-			bundle = { ...bundle };
-			originByStation = { ...originByStation, [targetId]: "open-meteo" };
-			const newNotices = { ...inferenceNoticeByStation };
-			delete newNotices[targetId];
-			inferenceNoticeByStation = newNotices;
-
-			const newSaabas = { ...saabasByStation };
-			delete newSaabas[targetId];
-			saabasByStation = newSaabas;
-		}
-	} catch (err) {
-		console.warn(
-			"[LiveFallback] Falha total ao consultar Open-Meteo ao vivo:",
-			err,
-		);
+	} finally {
+		inFlightStations.delete(targetId);
 	}
 }
 
@@ -435,7 +490,9 @@ async function loadForecastData(forceRefresh = false) {
 		const pts = bundle?.[activeId]?.points;
 		const lastPt = pts?.[pts.length - 1];
 		if (lastPt && new Date(lastPt.timestamp).getTime() < Date.now()) {
-			await fetchLiveOpenMeteoFallback(activeId);
+			if (!inFlightStations.has(activeId)) {
+				await fetchLiveOpenMeteoFallback(activeId);
+			}
 		}
 	} catch (e) {
 		if (!bundle) {

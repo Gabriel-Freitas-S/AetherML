@@ -297,3 +297,21 @@ export function buildFiveDayCards(
 		newestMs,
 	};
 }
+
+/**
+ * Normaliza timestamp retornado pela API Open-Meteo consultada com fuso America/Sao_Paulo.
+ * Se o timestamp for local sem fuso (ex: "2026-10-18T10:00"), anexa o offset "-03:00" em vez de ":00Z" (FYI-2).
+ */
+export function normalizeOpenMeteoTimestamp(t: string): string {
+	if (!t) return t;
+	if (t.endsWith("Z") || /[+-]\d{2}:\d{2}$/.test(t)) {
+		return t;
+	}
+	if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t)) {
+		return `${t}:00-03:00`;
+	}
+	if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(t)) {
+		return `${t}-03:00`;
+	}
+	return t;
+}

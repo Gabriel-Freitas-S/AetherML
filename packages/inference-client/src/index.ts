@@ -58,7 +58,20 @@ export interface WorkerErrorMsg {
 	requestId?: string;
 }
 
-export type WorkerOutMsg = WorkerReadyMsg | WorkerResultMsg | WorkerErrorMsg;
+export interface WorkerExplainResultMsg {
+	type: "explain_result";
+	stationId: string;
+	requestId?: string;
+	target: string;
+	baseValue: number;
+	contributions: SaabasContribution[];
+}
+
+export type WorkerOutMsg =
+	| WorkerReadyMsg
+	| WorkerResultMsg
+	| WorkerExplainResultMsg
+	| WorkerErrorMsg;
 
 export class AetherInferenceClient {
 	private worker: Worker;
@@ -203,6 +216,57 @@ export class AetherInferenceClient {
 				deltas,
 				featureNames,
 				requestId: reqId,
+			});
+		});
+	}
+
+	explain(params: {
+		stationId: string;
+		features: number[];
+		target?: string;
+		requestId?: string;
+	}): Promise<{
+		stationId: string;
+		target: string;
+		baseValue: number;
+		contributions: SaabasContribution[];
+	}> {
+		const reqId =
+			params.requestId ||
+			`req_${++this.reqCounter}_explain_${params.stationId}`;
+		return new Promise((resolve, reject) => {
+			const handler = (e: MessageEvent<WorkerOutMsg>) => {
+				const data = e.data;
+				if (data.type === "explain_result") {
+					const matchReq = data.requestId ? data.requestId === reqId : true;
+					const matchStation = data.stationId === params.stationId;
+					if (matchReq && matchStation) {
+						this.worker.removeEventListener("message", handler);
+						resolve({
+							stationId: data.stationId,
+							target: data.target,
+							baseValue: data.baseValue,
+							contributions: data.contributions,
+						});
+					}
+				} else if (data.type === "error") {
+					const matchReq = data.requestId ? data.requestId === reqId : true;
+					const matchStation = data.stationId
+						? data.stationId === params.stationId
+						: true;
+					if (matchReq && matchStation) {
+						this.worker.removeEventListener("message", handler);
+						reject(new Error(data.message));
+					}
+				}
+			};
+			this.worker.addEventListener("message", handler);
+			this.worker.postMessage({
+				type: "explain",
+				stationId: params.stationId,
+				requestId: reqId,
+				features: params.features,
+				target: params.target,
 			});
 		});
 	}

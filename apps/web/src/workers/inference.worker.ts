@@ -30,14 +30,19 @@ type PredictForecastMsg = {
 	cutoff?: string;
 	hours?: number;
 };
-type SimulateMsg = {
-	type: "simulate";
+type ExplainMsg = {
+	type: "explain";
+	stationId: string;
 	requestId?: string;
-	base: number[];
-	deltas: Record<string, number>;
-	featureNames: string[];
+	features: number[];
+	target?: string;
 };
-type InMsg = InitMsg | PredictMsg | PredictForecastMsg | SimulateMsg;
+type InMsg =
+	| InitMsg
+	| PredictMsg
+	| PredictForecastMsg
+	| SimulateMsg
+	| ExplainMsg;
 
 interface TreeNode {
 	leaf: boolean;
@@ -437,6 +442,39 @@ async function simulate(
 	await predict("simulation", featNames, [modified], requestId);
 }
 
+async function explain(
+	stationId: string,
+	features: number[],
+	target: string,
+	requestId?: string,
+) {
+	if (!isInitialized) {
+		throw new Error("Worker de inferência não inicializado para explain");
+	}
+	const pol = target || "pm25";
+	const top = topologies[pol];
+	if (!top) {
+		throw new Error(`Topologia Saabas indisponível para o alvo ${pol}`);
+	}
+	const { phi, baseValue } = computeSaabas(features, top);
+	const contributions = Object.entries(phi)
+		.map(([feature, val]) => ({
+			feature,
+			phi: Math.round(val * 100) / 100,
+		}))
+		.filter((item) => Math.abs(item.phi) > 0.05)
+		.sort((a, b) => Math.abs(b.phi) - Math.abs(a.phi));
+
+	self.postMessage({
+		type: "explain_result",
+		stationId,
+		requestId,
+		target: pol,
+		baseValue,
+		contributions,
+	});
+}
+
 self.onmessage = async (e: MessageEvent<InMsg>) => {
 	const reqId = (e.data as any).requestId;
 	const stId = (e.data as any).stationId;
@@ -465,6 +503,13 @@ self.onmessage = async (e: MessageEvent<InMsg>) => {
 				e.data.base,
 				e.data.deltas,
 				e.data.featureNames,
+				e.data.requestId,
+			);
+		} else if (e.data.type === "explain") {
+			await explain(
+				e.data.stationId,
+				e.data.features,
+				e.data.target || "pm25",
 				e.data.requestId,
 			);
 		}

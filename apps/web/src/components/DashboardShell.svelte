@@ -51,6 +51,8 @@ interface StationMeta {
 	coastal?: boolean;
 	downwind_tubarao?: boolean;
 	bridge_proximity?: boolean;
+	traffic_heavy?: boolean;
+	urban_canyon?: boolean;
 }
 
 /**
