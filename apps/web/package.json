@@ -18,7 +18,7 @@
 		"@aetherml/inference-client": "workspace:*",
 		"@astrojs/svelte": "^5.7.0",
 		"@types/katex": "^0.16.8",
-		"astro": "^4.16.0",
+		"astro": "^7.2.8",
 		"katex": "^0.18.9",
 		"leaflet": "^1.9.4",
 		"onnxruntime-web": "^1.19.0",
