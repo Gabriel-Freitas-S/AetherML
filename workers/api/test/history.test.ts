@@ -7,8 +7,8 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createSchema, localD1 } from "../../ingestion/test/d1-local.ts";
 import apiWorker, { type Env } from "../src/index.ts";
+import { createSchema, localD1 } from "./d1-local.ts";
 
 function makeEnv(db: D1Database): Env {
 	return {
@@ -19,7 +19,7 @@ function makeEnv(db: D1Database): Env {
 	};
 }
 
-test("GET /api/history: deduplica por timestamp aplicando prioridade 'IEMA' > 'open-meteo-cams-reanalysis' > 'open-meteo-cams-forecast'", async () => {
+test("GET /api/history: deduplica por timestamp aplicando prioridade 'IEMA' > 'open-meteo-cams-reanalysis' > NULL > 'open-meteo-cams-forecast'", async () => {
 	const local = localD1(createSchema());
 	try {
 		const insertSql = `INSERT INTO observed_pollutants
@@ -91,9 +91,26 @@ test("GET /api/history: deduplica por timestamp aplicando prioridade 'IEMA' > 'o
 			)
 			.run();
 
+		// Hora T4 (14:00): legado com source IS NULL e forecast → source IS NULL vence forecast (pm25 = 9.8)
+		await local.db
+			.prepare(insertSql)
+			.bind(
+				"t4-fc",
+				"ramqar_camburi",
+				"2026-10-18T14:00",
+				16.0,
+				42,
+				"open-meteo-cams-forecast",
+			)
+			.run();
+		await local.db
+			.prepare(insertSql)
+			.bind("t4-null", "ramqar_camburi", "2026-10-18T14:00", 9.8, 25, null)
+			.run();
+
 		const res = await apiWorker.fetch(
 			new Request(
-				"https://aetherml-api.local/api/history?station=ramqar_camburi&from=2026-10-18T10:00&to=2026-10-18T14:00",
+				"https://aetherml-api.local/api/history?station=ramqar_camburi&from=2026-10-18T10:00&to=2026-10-18T15:00",
 			),
 			makeEnv(local.db),
 		);
@@ -105,7 +122,7 @@ test("GET /api/history: deduplica por timestamp aplicando prioridade 'IEMA' > 'o
 		assert.equal(body.station_id, "ramqar_camburi");
 		assert.equal(
 			body.points.length,
-			3,
+			4,
 			"não pode devolver timestamps duplicados",
 		);
 		assert.deepEqual(
@@ -137,6 +154,13 @@ test("GET /api/history: deduplica por timestamp aplicando prioridade 'IEMA' > 'o
 					pm25: 13.2,
 					iqar_index: 35,
 					source: "open-meteo-cams-forecast",
+				},
+				{
+					id: "t4-null",
+					timestamp: "2026-10-18T14:00",
+					pm25: 9.8,
+					iqar_index: 25,
+					source: null,
 				},
 			],
 		);

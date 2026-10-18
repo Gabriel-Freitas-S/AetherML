@@ -46,11 +46,12 @@ export default {
 				   SELECT *,
 				          ROW_NUMBER() OVER (
 				            PARTITION BY timestamp
-				            ORDER BY CASE source
-				              WHEN 'IEMA' THEN 1
-				              WHEN 'open-meteo-cams-reanalysis' THEN 2
-				              WHEN 'open-meteo-cams-forecast' THEN 3
-				              ELSE 4
+				            ORDER BY CASE
+				              WHEN source = 'IEMA' THEN 1
+				              WHEN source = 'open-meteo-cams-reanalysis' THEN 2
+				              WHEN source IS NULL THEN 3
+				              WHEN source = 'open-meteo-cams-forecast' THEN 4
+				              ELSE 5
 				            END ASC
 				          ) AS rn
 				   FROM observed_pollutants

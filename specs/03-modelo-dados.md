@@ -19,7 +19,7 @@ model_registry 1──N weekly_evaluations
 | Tabela | Grão | Notas |
 |--------|------|-------|
 | `monitoring_stations` | 1 linha / estação (9 RAMQAr) | PK textual `ramqar_*`; lat/lon p/ Haversine; `is_active` p/ desativar sem deletar |
-| `observed_pollutants` | 1 linha / estação / hora | Ground truth IEMA. `UNIQUE(station,timestamp)` + índice. `iqar_index/class/primary` materializados p/ auditoria rápida |
+| `observed_pollutants` | 1 linha / estação / hora / source | Ground truth IEMA + CAMS (reanálise/previsão). `UNIQUE(station_id, timestamp, source)` + índice. `iqar_index/class/primary` materializados p/ auditoria rápida |
 | `environmental_features` | 1 linha / estação / hora / is_forecast | `is_forecast 0|1` separa histórico × Open-Meteo. Inclui `wind_u/v`, `PBLH`, `AOD`, `tropomi_no2`, `traffic_congestion_index` (H-II/III, nullable) |
 | `model_registry` | 1 linha / versão / poluente | 5 linhas ativas por ciclo (pm25,pm10,o3,no2,so2). `onnx_hash_sha256` = cache-buster PWA; `saabas_topology_path` p/ XAI; `metadata_json` guarda constraints + hiperparams |
 | `prediction_logs` | 1 linha / versão / estação / geração / alvo | Permite avaliar o mesmo alvo sob gerações distintas (drift de forecast). UNIQUE quádruplo |

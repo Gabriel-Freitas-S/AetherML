@@ -6,10 +6,18 @@
 -- 'open-meteo-cams-forecast'), o upsert por (station_id, timestamp) sobrescreveria o CAMS
 -- (necessário como preditor X do MOS e fallback para estações sem sensor físico).
 --
--- Rebuild canônico SQLite/D1 (sem BEGIN/COMMIT explícitos, pois o executor de migrations do D1
--- já envolve cada arquivo em transação): cria tabela nova com UNIQUE(station_id, timestamp, source),
--- copia todas as linhas existentes preservando id e created_at, substitui a tabela original e
--- recria o índice de leitura por (station_id, timestamp).
+-- Rebuild canônico de tabela no SQLite/D1:
+-- Cria tabela nova com a restrição UNIQUE(station_id, timestamp, source) desejada,
+-- copia todas as linhas pré-existentes preservando id e created_at, descarta a original
+-- e renomeia a nova.
+--
+-- Nota sobre atomicidade no D1:
+-- O executor remoto de migrations do Cloudflare D1 (via wrangler d1 migrations apply)
+-- envia os statements como batch sequencial. A sequência é estruturada defensivamente:
+-- 1. CREATE TABLE observed_pollutants_new não afeta a tabela em produção.
+-- 2. INSERT INTO ... SELECT copia os dados integralmente.
+-- 3. DROP e ALTER RENAME ocorrem somente após a cópia íntegra.
+-- Caso o processo seja interrompido antes do passo 3, os dados originais permanecem intactos.
 
 CREATE TABLE observed_pollutants_new (
     id TEXT PRIMARY KEY,

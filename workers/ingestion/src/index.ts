@@ -168,6 +168,69 @@ ON CONFLICT(station_id, timestamp, source) DO UPDATE SET
 ${cols.map((c) => `  ${c} = excluded.${c}`).join(",\n")}`;
 }
 
+/**
+ * Upsert para a ingestão horária do cron (/api/mapa).
+ * Como /api/mapa reporta apenas o poluente crítico da estação (deixando os demais como NULL),
+ * a cláusula DO UPDATE usa COALESCE para NUNCA sobrescrever valores pré-existentes de um
+ * backfill multi-poluente consolidado (/api/mapa/{id}). Assim, o dado oficial consolidado
+ * sempre vence o instantâneo do cron, independentemente da ordem de execução.
+ */
+export function buildIemaMapaUpsert(): string {
+	const cols = [
+		"pm25",
+		"pm10",
+		"so2",
+		"no2",
+		"o3",
+		"co",
+		"iqar_index",
+		"iqar_classification",
+		"primary_pollutant",
+		"source",
+	];
+	return `INSERT INTO observed_pollutants (id, station_id, timestamp, ${cols.join(", ")})
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(station_id, timestamp, source) DO UPDATE SET
+${cols.map((c) => `  ${c} = COALESCE(observed_pollutants.${c}, excluded.${c})`).join(",\n")}`;
+}
+
+/** Prepara um statement de inserção/upsert para uma `ObservedRow`. */
+export function prepareObservedStatement(
+	db: D1Database,
+	r: ObservedRow,
+	sql: string = buildObservedUpsert(),
+): D1PreparedStatement {
+	return db
+		.prepare(sql)
+		.bind(
+			crypto.randomUUID(),
+			r.stationId,
+			r.timestamp,
+			r.pm25,
+			r.pm10,
+			r.so2,
+			r.no2,
+			r.o3,
+			r.co,
+			r.iqarIndex,
+			r.iqarClassification,
+			r.primaryPollutant,
+			r.source,
+		);
+}
+
+/**
+ * Executa o batch de upsert de `ObservedRow` no D1 com o SQL especificado (default: `buildObservedUpsert()`).
+ */
+export async function upsertObservedRows(
+	db: D1Database,
+	rows: ObservedRow[],
+	sql: string = buildObservedUpsert(),
+): Promise<void> {
+	if (rows.length === 0) return;
+	await db.batch(rows.map((r) => prepareObservedStatement(db, r, sql)));
+}
+
 /** Mesma estratégia para environmental_features, cuja UNIQUE tem 3 colunas. */
 export function buildFeaturesUpsert(): string {
 	const cols = [
@@ -449,10 +512,12 @@ const IEMA_CONAMA_BANDS_UG_M3: Record<IemaPollutantColumn, readonly IqaBand[]> =
  * Converte `DataHora` da API PRODEST/IEMA (`"YYYY-MM-DDTHH:MM:SS"` em horário
  * local BRT, `America/Sao_Paulo = UTC-03:00`, sem sufixo de fuso) para o formato
  * canônico UTC `"YYYY-MM-DDTHH:00"` de `observed_pollutants`.
- * Devolve `null` para sentinelas de estação desativada (`"0001-01-01T00:00:00"`).
+ * Devolve `null` para sentinelas de estação desativada (`"0001-01-01T00:00:00"`)
+ * ou timestamps projetados no futuro além de 2 horas.
  */
 export function iemaDataHoraToUtc(
 	raw: string | null | undefined,
+	now: Date = new Date(),
 ): string | null {
 	if (typeof raw !== "string") return null;
 	const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(
@@ -463,7 +528,8 @@ export function iemaDataHoraToUtc(
 	const month = Number(m[2]);
 	const day = Number(m[3]);
 	const hour = Number(m[4]);
-	if (year < 2000) return null; // ignora "0001-01-01T00:00:00" (estação offline)
+	const maxYear = now.getFullYear() + 1;
+	if (year < 2000 || year > maxYear) return null; // ignora "0001-01-01" e rejeita ano futuro (ex.: 2099)
 	// BRT é UTC-3 fixo (Brasil sem horário de verão): somar 3 horas obtém UTC.
 	const utcMs = Date.UTC(year, month - 1, day, hour + 3, 0, 0);
 	if (!Number.isFinite(utcMs)) return null;
@@ -475,27 +541,28 @@ export function parseIemaPollutant(
 	rawNameOrSigla: string | null | undefined,
 ): IemaPollutantColumn | null {
 	if (typeof rawNameOrSigla !== "string") return null;
-	const s = rawNameOrSigla.trim().toLowerCase();
+	// Normaliza decomposição Unicode NFKD (converte subscritos MP₂,₅ / MP₁₀) e remove diacríticos
+	const s = rawNameOrSigla
+		.trim()
+		.toLowerCase()
+		.normalize("NFKD")
+		.replace(/\p{M}/gu, "");
 	if (s.includes("2,5") || s.includes("2.5") || s.includes("mp2")) {
 		return "pm25";
 	}
 	if (s.includes("10") || s.includes("mp10")) {
 		return "pm10";
 	}
-	if (s.includes("ozônio") || s.includes("ozonio") || s.includes("(o3)")) {
+	if (s.includes("ozonio") || s.includes("(o3)") || s.includes("o3")) {
 		return "o3";
 	}
-	if (
-		s.includes("nitrogênio") ||
-		s.includes("nitrogenio") ||
-		s.includes("no2")
-	) {
+	if (s.includes("nitrogenio") || s.includes("no2")) {
 		return "no2";
 	}
 	if (s.includes("enxofre") || s.includes("so2")) {
 		return "so2";
 	}
-	if (s.includes("monóxido") || s.includes("monoxido") || s.includes("(co)")) {
+	if (s.includes("monoxido") || s.includes("(co)") || s.includes("co")) {
 		return "co";
 	}
 	return null;
@@ -504,6 +571,7 @@ export function parseIemaPollutant(
 /**
  * Inverte o subíndice `ValorIqa` de `/api/mapa/{IdEstacao}` para concentração
  * em `µg/m³` segundo as faixas lineares por partes da CONAMA 491/2018.
+ * Rejeita valores negativos ou acima do teto normativo de 300.
  */
 export function iemaIqaToUgM3(
 	pollutant: IemaPollutantColumn,
@@ -512,7 +580,8 @@ export function iemaIqaToUgM3(
 	if (
 		typeof valorIqa !== "number" ||
 		!Number.isFinite(valorIqa) ||
-		valorIqa < 0
+		valorIqa < 0 ||
+		valorIqa > 300
 	) {
 		return null;
 	}
@@ -535,12 +604,19 @@ export interface IemaMapaItem {
 
 /**
  * Constrói uma `ObservedRow` (`source = 'IEMA'`) a partir de um item de `GET /api/mapa`.
- * `Valor` em `/api/mapa` já está em `µg/m³` (fator `1.0`). O IQAr é sempre
- * calculado via `calculateRegulatoryIQAr` do `packages/core-iqar/src/iqar.ts`.
+ * `Valor` em `/api/mapa` reporta a concentração instantânea (em µg/m³, fator 1.0) do poluente
+ * crítico da estação.
+ *
+ * Semântica física e conformidade CONAMA 491:
+ * `calculateRegulatoryIQAr` exige médias móveis (24h p/ PM, 8h p/ O3/CO), não leituras
+ * instantâneas de 1 hora. Nunca derivamos um falso IQAr regulatório a partir do `Valor` de 1h.
+ * Em vez disso, preservamos o `Iqa` e a `Faixa` OFICIAIS já computados e publicados pelo IEMA
+ * no payload (ou deixamos NULL caso ausentes/inválidos).
  */
 export function iemaRowFromMapa(
 	item: IemaMapaItem,
 	activeStationIds?: ReadonlySet<string>,
+	now: Date = new Date(),
 ): ObservedRow | null {
 	const idEstacao =
 		typeof item?.IdEstacao === "number" ? item.IdEstacao : Number.NaN;
@@ -550,6 +626,7 @@ export function iemaRowFromMapa(
 
 	const timestamp = iemaDataHoraToUtc(
 		typeof item.DataHora === "string" ? item.DataHora : null,
+		now,
 	);
 	if (!timestamp) return null;
 
@@ -562,7 +639,16 @@ export function iemaRowFromMapa(
 	if (!Number.isFinite(rawVal) || rawVal < 0) return null;
 	const valUgM3 = round2(rawVal); // fator 1.0: /api/mapa já reporta µg/m³
 
-	const row: ObservedRow = {
+	const officialIqa =
+		typeof item.Iqa === "number" && Number.isFinite(item.Iqa) && item.Iqa >= 0
+			? Math.round(item.Iqa)
+			: null;
+	const officialFaixa =
+		typeof item.Faixa === "string" && item.Faixa.trim().length > 0
+			? item.Faixa.trim()
+			: null;
+
+	return {
 		stationId,
 		timestamp,
 		pm25: col === "pm25" ? valUgM3 : null,
@@ -571,25 +657,11 @@ export function iemaRowFromMapa(
 		no2: col === "no2" ? valUgM3 : null,
 		o3: col === "o3" ? valUgM3 : null,
 		co: col === "co" ? valUgM3 : null,
-		iqarIndex: null,
-		iqarClassification: null,
-		primaryPollutant: null,
+		iqarIndex: officialIqa,
+		iqarClassification: officialFaixa,
+		primaryPollutant: officialIqa !== null ? col : null,
 		source: IEMA_SENTINEL,
 	};
-
-	const reg = calculateRegulatoryIQAr({
-		pm25: row.pm25,
-		pm10: row.pm10,
-		o3: row.o3,
-		no2: row.no2,
-		so2: row.so2,
-	});
-	if (reg) {
-		row.iqarIndex = reg.iqar;
-		row.iqarClassification = reg.classification;
-		row.primaryPollutant = reg.primary;
-	}
-	return row;
 }
 
 // --- Fetch ------------------------------------------------------------------
@@ -836,23 +908,7 @@ async function ingestStation(
 		// `batch` do D1 roda tudo numa transação: ou a estação entra inteira,
 		// ou nada. É o que impede uma tabela meio escrita após falha parcial.
 		await env.DB.batch([
-			...observed.map((r) =>
-				env.DB.prepare(buildObservedUpsert()).bind(
-					crypto.randomUUID(),
-					r.stationId,
-					r.timestamp,
-					r.pm25,
-					r.pm10,
-					r.so2,
-					r.no2,
-					r.o3,
-					r.co,
-					r.iqarIndex,
-					r.iqarClassification,
-					r.primaryPollutant,
-					r.source,
-				),
-			),
+			...observed.map((r) => prepareObservedStatement(env.DB, r)),
 			...features.map((r) =>
 				env.DB.prepare(buildFeaturesUpsert()).bind(
 					crypto.randomUUID(),
@@ -911,10 +967,12 @@ export async function ingestIemaMapa(
 	doFetch: typeof fetch,
 	log: (msg: string) => void,
 	logError: (msg: string) => void,
+	now: Date = new Date(),
 ): Promise<IemaMapaReport> {
 	try {
 		const res = await doFetch(IEMA_MAPA_URL, {
 			headers: { "User-Agent": "AetherML/1.0" },
+			signal: AbortSignal.timeout(5000),
 		});
 		if (!res.ok) {
 			const body = (await res.text().catch(() => "")).slice(0, 300);
@@ -929,7 +987,7 @@ export async function ingestIemaMapa(
 		const rows: ObservedRow[] = [];
 		let skipped = 0;
 		for (const item of payload) {
-			const row = iemaRowFromMapa(item as IemaMapaItem, activeStationIds);
+			const row = iemaRowFromMapa(item as IemaMapaItem, activeStationIds, now);
 			if (row) {
 				rows.push(row);
 			} else {
@@ -937,25 +995,7 @@ export async function ingestIemaMapa(
 			}
 		}
 		if (rows.length > 0) {
-			await env.DB.batch(
-				rows.map((r) =>
-					env.DB.prepare(buildObservedUpsert()).bind(
-						crypto.randomUUID(),
-						r.stationId,
-						r.timestamp,
-						r.pm25,
-						r.pm10,
-						r.so2,
-						r.no2,
-						r.o3,
-						r.co,
-						r.iqarIndex,
-						r.iqarClassification,
-						r.primaryPollutant,
-						r.source,
-					),
-				),
-			);
+			await upsertObservedRows(env.DB, rows, buildIemaMapaUpsert());
 		}
 		log(
 			`[ingest:iema] /api/mapa observed_pollutants=${rows.length} ignoradas=${skipped} fonte=${IEMA_SENTINEL}`,
@@ -998,6 +1038,7 @@ export interface InsituIngestOptions {
 	fetchImpl?: typeof fetch;
 	log?: (msg: string) => void;
 	logError?: (msg: string) => void;
+	now?: Date;
 }
 
 interface IemaStationSeriesItem {
@@ -1005,18 +1046,20 @@ interface IemaStationSeriesItem {
 	PoluenteSigla?: unknown;
 	DataHora?: unknown;
 	ValorIqa?: unknown;
-	Valor?: unknown;
 }
 
 /**
  * Converte o payload de `GET /api/mapa/{IdEstacao}` (série 48h por poluente) em
  * linhas horárias consolidadas por `timestamp` UTC (`source = 'IEMA'`), recortando
  * as `hours` horas mais recentes presentes na estação.
+ * `ValorIqa` representa os subíndices regulatórios das médias móveis CONAMA calculadas
+ * pelo IEMA; `iemaIqaToUgM3` inverte-os para concentrações equivalentes em µg/m³.
  */
 export function iemaRowsFromStationSeries(
 	stationId: string,
 	payload: unknown,
 	hours: number,
+	now: Date = new Date(),
 ): ObservedRow[] {
 	if (!Array.isArray(payload)) {
 		throw new Error(`${stationId} iema-48h: payload não é uma lista`);
@@ -1038,25 +1081,18 @@ export function iemaRowsFromStationSeries(
 
 		const times = entry?.DataHora;
 		const iqaValues = entry?.ValorIqa;
-		const rawValues = entry?.Valor;
-		if (!Array.isArray(times)) continue;
-		const valuesList = Array.isArray(rawValues)
-			? rawValues
-			: Array.isArray(iqaValues)
-				? iqaValues
-				: null;
-		const isDirectUgM3 = Array.isArray(rawValues);
-		if (!valuesList) continue;
+		if (!Array.isArray(times) || !Array.isArray(iqaValues)) continue;
 
-		const len = Math.min(times.length, valuesList.length);
+		const len = Math.min(times.length, iqaValues.length);
 		for (let i = 0; i < len; i++) {
 			const ts = iemaDataHoraToUtc(
 				typeof times[i] === "string" ? times[i] : null,
+				now,
 			);
 			if (!ts) continue;
-			const rawNum = Number(valuesList[i]);
+			const rawNum = Number(iqaValues[i]);
 			if (!Number.isFinite(rawNum) || rawNum < 0) continue;
-			const ugM3 = isDirectUgM3 ? round2(rawNum) : iemaIqaToUgM3(col, rawNum);
+			const ugM3 = iemaIqaToUgM3(col, rawNum);
 			if (ugM3 === null) continue;
 
 			const bucket = byTimestamp.get(ts) ?? {};
@@ -1132,6 +1168,7 @@ export async function ingestInsitu(
 					const url = `${IEMA_MAPA_URL}/${idEstacao}`;
 					const res = await doFetch(url, {
 						headers: { "User-Agent": "AetherML/1.0" },
+						signal: AbortSignal.timeout(5000),
 					});
 					if (!res.ok) {
 						const body = (await res.text().catch(() => "")).slice(0, 300);
@@ -1140,27 +1177,14 @@ export async function ingestInsitu(
 						);
 					}
 					const payload: unknown = await res.json();
-					const rows = iemaRowsFromStationSeries(stationId, payload, hours);
+					const rows = iemaRowsFromStationSeries(
+						stationId,
+						payload,
+						hours,
+						opts.now ?? new Date(),
+					);
 					if (rows.length > 0) {
-						await env.DB.batch(
-							rows.map((r) =>
-								env.DB.prepare(buildObservedUpsert()).bind(
-									crypto.randomUUID(),
-									r.stationId,
-									r.timestamp,
-									r.pm25,
-									r.pm10,
-									r.so2,
-									r.no2,
-									r.o3,
-									r.co,
-									r.iqarIndex,
-									r.iqarClassification,
-									r.primaryPollutant,
-									r.source,
-								),
-							),
-						);
+						await upsertObservedRows(env.DB, rows, buildObservedUpsert());
 					}
 					return {
 						idEstacao,
@@ -1251,7 +1275,7 @@ export async function ingest(
 	let iema: IemaMapaReport | undefined;
 	if (opts.days === undefined) {
 		const activeIds = new Set(stations.map((s) => s.id));
-		iema = await ingestIemaMapa(env, activeIds, doFetch, log, logError);
+		iema = await ingestIemaMapa(env, activeIds, doFetch, log, logError, now);
 	}
 
 	const failed = perStation.filter((s) => !s.ok);
@@ -1293,10 +1317,12 @@ function checkMethodAndAuth(
 			},
 		);
 	}
+	const token = req.headers.get("X-Ingest-Token");
 	if (
-		env.INGEST_TOKEN !== undefined &&
-		(env.INGEST_TOKEN === "" ||
-			req.headers.get("X-Ingest-Token") !== env.INGEST_TOKEN)
+		!env.INGEST_TOKEN ||
+		typeof env.INGEST_TOKEN !== "string" ||
+		env.INGEST_TOKEN.trim() === "" ||
+		token !== env.INGEST_TOKEN
 	) {
 		return new Response(
 			JSON.stringify(

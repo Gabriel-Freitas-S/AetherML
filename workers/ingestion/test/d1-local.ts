@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
-const DB_DIR = fileURLToPath(new URL("../../../db/", import.meta.url));
+export const DB_DIR = fileURLToPath(new URL("../../../db/", import.meta.url));
 
 type Bindable = null | number | bigint | string | Uint8Array;
 
