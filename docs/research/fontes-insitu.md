@@ -66,12 +66,15 @@ Desenvolvida pelo PRODEST em parceria com o IEMA-ES para alimentar o painel ofic
      - Retorna array JSON por poluente medido na estação (`Dióxido de Enxofre (SO₂)`, `Monóxido de Carbono (CO)`, `Ozônio (O₃)`, `Dióxido de Nitrogênio (NO₂)`, `Partículas Respiráveis (<2,5µm) (MP₂,₅)`, `Partículas Inaláveis (<10µm) (MP₁₀)`).
      - Cada objeto traz `DataHora` (array com as últimas **48 horas**), `ValorIqa` (array com os 48 valores horários do sub-índice IQA daquele poluente), `Min`, `Max`, `Cor` e `FaixaIQA`.
 - **Amostras Reais Salvas:**
-  - [`docs/research/amostras/iema_api_mapa_live.json`](./amostras/iema_api_mapa_live.json)
-  - [`docs/research/amostras/iema_api_estacoes_48h_sample.json`](./amostras/iema_api_estacoes_48h_sample.json)
-- **Granularidade e Latência:** Horária (`:00` nas estações RGV, `:30` nas estações SUL). Na coleta às `16:48 BRT` de `18/10/2026`, todas as estações RGV ativas já reportavam o dado de `2026-10-18T16:00:00` (latência < 45 minutos).
+  - [`docs/research/amostras/iema_api_mapa_live.json`](./amostras/iema_api_mapa_live.json) (`16:00 BRT`)
+  - [`docs/research/amostras/iema_api_estacoes_48h_sample.json`](./amostras/iema_api_estacoes_48h_sample.json) (`16:00 BRT`)
+  - [`docs/research/amostras/iema_api_mapa_17h_comparison.json`](./amostras/iema_api_mapa_17h_comparison.json) (`17:00 BRT` — comparativo de 2 horas distintas e todas as 16 estações)
+- **Especificação Completa do Contrato Operacional (Unidades, Fatores de Conversão, Fuso `BRT → UTC +3h` e Tratamento de Exceções):** ver documento dedicado **[`docs/research/iema-api-contrato-operacional.md`](./iema-api-contrato-operacional.md)**.
+- **Granularidade e Latência:** Horária (`:00` nas estações RGV, `:30` nas estações SUL). Na coleta às `16:48 BRT` (`16:00`) e às `17:30 BRT` (`17:00`) de `18/10/2026`, todas as estações RGV ativas já reportavam a hora fechada (latência típica de 15 a 30 minutos).
 - **Autenticação, Licença e Limites:** Sem autenticação, cabeçalho `Access-Control-Allow-Origin: *` habilitado, amparado pela Lei Federal nº 14.850/2024 (Política Nacional de Qualidade do Ar) e Lei de Acesso à Informação.
 - **Riscos e Observações Técnicas:**
-  - O endpoint `/api/mapa/{IdEstacao}` retorna o **sub-índice `ValorIqa`** de cada poluente nas últimas 48h, enquanto `/api/mapa` retorna `Valor` (concentração) apenas para o poluente dominante da hora atual. Contudo, como o sub-índice é uma função linear por partes bijetora em cada faixa ($I_p = I_{\text{ini}} + \frac{I_{\text{fim}} - I_{\text{ini}}}{C_{\text{fim}} - C_{\text{ini}}}(C_p - C_{\text{ini}})$), a concentração equivalente pode ser invertida analiticamente; porém, **atenção**: o cálculo do IQA para MP₂,₅ e MP₁₀ usa média móvel de 24h (e CO/O₃ média de 8h), enquanto SO₂/NO₂ no boletim horário refletem a janela vigente. Por isso, para **treino de modelos ML**, deve-se usar as planilhas horárias de concentração bruta (Seção 3.2), e usar a API `/api/mapa/{id}` no Worker de ingestão para monitoramento ao vivo e cálculo/inversão operacional.
+  - O endpoint `/api/mapa/{IdEstacao}` retorna o **sub-índice `ValorIqa`** de cada poluente nas últimas 48h, enquanto `/api/mapa` retorna `Valor` (concentração horária em $\mu\text{g/m}^3$) apenas para o poluente dominante da hora atual e `Iqa` (índice adimensional `0..400`, que concorda 100% com `round(Iqa, 2) == ValorIqa[-1]`). A tabela de inversão por poluente, a regra de cálculo de `iqar_index` com subconjunto de poluentes medidos e os sentinelas de estação offline (`DataHora: "0001-01-01T00:00:00"` em `RGV2`) estão detalhados em [`docs/research/iema-api-contrato-operacional.md`](./iema-api-contrato-operacional.md).
+
 
 ---
 
