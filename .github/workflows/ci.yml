@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "fix/*"]
+  pull_request:
+
+jobs:
+  test-and-build:
+    name: Test and Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run JS/TS workspace tests
+        run: pnpm -r test
+
+      - name: Run workspace build
+        run: pnpm -r build
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ML tests
+        run: python3 ml/run_tests.py

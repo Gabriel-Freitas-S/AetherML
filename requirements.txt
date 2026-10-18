@@ -1,0 +1,9 @@
+# Pipeline Python do AetherML (alvo: Python 3.12)
+numpy==2.5.4
+lightgbm==4.7.0
+onnxmltools==1.16.0
+onnx==1.23.2
+onnxruntime==1.31.0
+scikit-learn==1.9.1
+scipy==1.18.1
+skl2onnx==1.20.0

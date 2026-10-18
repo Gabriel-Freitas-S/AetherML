@@ -25,6 +25,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -33,12 +34,12 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
 
 # Contrato de caminhos: é isto que o site lê (apps/web/public/data/*).
-RAW_PATH = os.path.join("ml", "data", "openmeteo_raw.json")
-FORECAST_PATH = os.path.join("apps", "web", "public", "data", "stations-data.json")
-EVAL_PATH = os.path.join("apps", "web", "public", "data", "model-eval.json")
-FORECAST_COMPARE_PATH = os.path.join(
+RAW_PATH = Path("ml", "data", "openmeteo_raw.json").as_posix()
+FORECAST_PATH = Path("apps", "web", "public", "data", "stations-data.json").as_posix()
+EVAL_PATH = Path("apps", "web", "public", "data", "model-eval.json").as_posix()
+FORECAST_COMPARE_PATH = Path(
     "apps", "web", "public", "data", "forecast-compare.json"
-)
+).as_posix()
 
 # O holdout tem que terminar junto com o dado bruto mais recente; se divergir,
 # algum artefato do meio ficou velho.

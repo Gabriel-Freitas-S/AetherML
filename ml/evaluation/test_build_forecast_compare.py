@@ -339,6 +339,52 @@ def test_values_rounded_to_three_decimals_and_zero_is_a_value():
     assert got["ml"] == [1.235, 0.0] and got["api"] == [9.877, 0.0]
 
 
+def test_paths_serialized_as_posix_no_backslashes():
+    """BUG-11: caminhos serializados no payload devem ser posix (sem \\)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        raw_p, fc_p = _write_inputs(tmp)
+        out_path = os.path.join(tmp, "out.json")
+        version, order = active_model()
+        # Executa build_forecast_compare com caminhos reais
+        payload = build_forecast_compare(
+            raw_path=raw_p,
+            forecast_path=fc_p,
+            out_path=out_path,
+            version=version,
+            order=order,
+        )
+        assert "\\" not in payload["source"]["raw_file"]
+        assert "\\" not in payload["source"]["ml"]
+
+        # Testa build_payload diretamente simulando caminhos com \\ do Windows
+        st = _station(n=4)
+        payload_win = build_payload(
+            [st],
+            model_version="vX",
+            feature_order_version="v2",
+            window_from=st["timestamps"][0],
+            window_to=st["timestamps"][-1],
+            window_hours=4,
+            raw_fetched_at="2026-10-02T16:44:49Z",
+            generated_at="2026-10-02T17:00:00Z",
+            source_ml="apps\\web\\public\\data\\stations-data.json (LightGBM, calibrado)",
+            source_api="Open-Meteo air-quality API (CAMS)",
+            raw_file="ml\\data\\openmeteo_raw.json",
+            validation_note="nota de teste",
+            caveats=[],
+        )
+        assert "\\" not in payload_win["source"]["raw_file"], (
+            f"raw_file contém contra-barra: {payload_win['source']['raw_file']}"
+        )
+        assert "\\" not in payload_win["source"]["ml"], (
+            f"source.ml contém contra-barra: {payload_win['source']['ml']}"
+        )
+        raw_json_str = json.dumps(payload_win)
+        assert "\\\\" not in raw_json_str, (
+            f"JSON serializado contém escape de contra-barra: {raw_json_str}"
+        )
+
+
 if __name__ == "__main__":
     test_ml_column_is_copied_never_recomputed()
     test_parallel_arrays_have_equal_length()
@@ -353,4 +399,6 @@ if __name__ == "__main__":
     test_cams_is_an_input_not_a_reference()
     test_no2_caveats_report_two_measured_numbers()
     test_values_rounded_to_three_decimals_and_zero_is_a_value()
-    print("[OK] test_build_forecast_compare: 13/13 verdes")
+    test_paths_serialized_as_posix_no_backslashes()
+    print("[OK] test_build_forecast_compare: 14/14 verdes")
+
