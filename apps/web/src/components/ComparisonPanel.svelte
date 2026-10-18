@@ -32,8 +32,15 @@ import {
 	iqarIcon,
 	isRenderable,
 } from "../lib/comparison";
+import { loadStationId, saveStationId } from "../lib/location";
 import ComparisonChart from "./ComparisonChart.svelte";
 import StationPicker from "./StationPicker.svelte";
+
+const {
+	onSwitchToPrevisao,
+}: {
+	onSwitchToPrevisao?: () => void;
+} = $props();
 
 /**
  * Métricas do artefato. `by_station` NÃO traz `r2` (verificado no JSON:
@@ -72,6 +79,14 @@ let loadError = $state<string | null>(null);
 let pollutant = $state<PollutantKey>("pm25");
 let stationId = $state<string>("");
 
+function handlePrevisaoLinkClick(event: MouseEvent) {
+	if (!onSwitchToPrevisao) return;
+	if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+	if (event.button !== 0) return;
+	event.preventDefault();
+	onSwitchToPrevisao();
+}
+
 onMount(async () => {
 	try {
 		const res = await fetch("/data/comparison-data.json");
@@ -81,7 +96,12 @@ onMount(async () => {
 			throw new Error("O artefato não traz nenhuma estação.");
 		}
 		data = payload;
-		if (!stationId) stationId = payload.stations[0].id;
+		const saved = loadStationId();
+		if (saved && payload.stations.some((s) => s.id === saved)) {
+			stationId = saved;
+		} else if (!stationId) {
+			stationId = payload.stations[0].id;
+		}
 	} catch (err) {
 		// Nenhum gráfico vazio "saudável" depois de um fetch que falhou.
 		loadError =
@@ -300,7 +320,10 @@ function fmtStamp(iso: string | null | undefined): string {
 				<StationPicker
 					stations={stationOptions}
 					activeId={activeStation?.id ?? ""}
-					onChange={(id) => (stationId = id)}
+					onChange={(id) => {
+						stationId = id;
+						saveStationId(id);
+					}}
 					label="Estação da comparação"
 				/>
 			</div>
@@ -379,7 +402,8 @@ function fmtStamp(iso: string | null | undefined): string {
 					</p>
 				</div>
 
-				<div class="glass-card p-5 border-l-4 border-l-amber-400">
+				<div class="glass-card p-5 relative overflow-hidden">
+					<div class="absolute top-0 inset-x-0 h-0.5 bg-amber-400"></div>
 					<h3 class="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
 						<span class="i-ph-warning-fill w-4 h-4 text-amber-600"></span>
 						Ressalvas que citam {POLLUTANT_LABEL[pollutant]}
@@ -454,9 +478,10 @@ function fmtStamp(iso: string | null | undefined): string {
 		<div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-2xl px-4 py-3 flex items-start gap-2.5" role="alert">
 			<span class="i-ph-warning-fill w-4 h-4 text-amber-600 shrink-0 mt-0.5"></span>
 			<span>
-				<strong>Esta página é só holdout (passado).</strong>
+				<strong>Esta aba mostra apenas o holdout (passado).</strong>
 				A previsão de 120h à frente do produto é outra janela, no futuro, e vem de outro
-				artefato — ela não é avaliada aqui nem valida o holdout. Nada nesta tela é
+				artefato (<a href="/comparacao-previsao" onclick={handlePrevisaoLinkClick} class="underline font-semibold text-amber-900">aba Previsão</a>)
+				— ela não é avaliada aqui nem valida o holdout. Nada nesta tela é
 				projeção: são horas já decorridas.
 			</span>
 		</div>

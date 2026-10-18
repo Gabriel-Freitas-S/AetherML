@@ -51,8 +51,15 @@ import {
 	pollutantRows,
 } from "../lib/forecast-compare";
 import { formatObservedAt } from "../lib/forecast-days";
+import { loadStationId, saveStationId } from "../lib/location";
 import ComparisonChart from "./ComparisonChart.svelte";
 import StationPicker from "./StationPicker.svelte";
+
+const {
+	onSwitchToHoldout,
+}: {
+	onSwitchToHoldout?: () => void;
+} = $props();
 
 /** As mesmas duas cores de série do ComparisonChart: modelo e fonte. */
 const ML_COLOR = "#0284c7";
@@ -72,6 +79,14 @@ let loadError = $state<string | null>(null);
 let pollutant = $state<PollutantKey>("pm25");
 let stationId = $state<string>("");
 
+function handleHoldoutLinkClick(event: MouseEvent) {
+	if (!onSwitchToHoldout) return;
+	if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+	if (event.button !== 0) return;
+	event.preventDefault();
+	onSwitchToHoldout();
+}
+
 onMount(async () => {
 	try {
 		const res = await fetch(ARTIFACT_URL);
@@ -81,7 +96,12 @@ onMount(async () => {
 			throw new Error("O artefato não traz nenhuma estação.");
 		}
 		data = payload;
-		if (!stationId) stationId = payload.stations[0].id;
+		const saved = loadStationId();
+		if (saved && payload.stations.some((s) => s.id === saved)) {
+			stationId = saved;
+		} else if (!stationId) {
+			stationId = payload.stations[0].id;
+		}
 	} catch (err) {
 		// Nenhum gráfico vazio "saudável" depois de um fetch que falhou.
 		loadError =
@@ -199,8 +219,8 @@ function fmtHour(iso: string | null | undefined): string {
 					</p>
 					<p class="mt-2.5 text-sm leading-relaxed font-medium border-t border-amber-300 pt-2.5">
 						Para medir erro de verdade:
-						<a href="/comparacao" class="underline decoration-2 underline-offset-2 hover:text-amber-800">
-							Holdout — Modelo vs Open-Meteo
+						<a href="/comparacao" onclick={handleHoldoutLinkClick} class="underline decoration-2 underline-offset-2 hover:text-amber-800">
+							Holdout — 168h de validação (Modelo vs Open-Meteo)
 						</a>, onde a hora avaliada é anterior à coleta e o valor CAMS dela nunca
 						entrou em nenhum treino.
 					</p>
@@ -424,7 +444,10 @@ function fmtHour(iso: string | null | undefined): string {
 				<StationPicker
 					stations={stationOptions}
 					activeId={activeStation?.id ?? ""}
-					onChange={(id) => (stationId = id)}
+					onChange={(id) => {
+						stationId = id;
+						saveStationId(id);
+					}}
 					label="Estação da comparação da previsão"
 				/>
 			</div>
@@ -505,7 +528,8 @@ function fmtHour(iso: string | null | undefined): string {
 					</p>
 				</div>
 
-				<div class="glass-card p-5 border-l-4 border-l-amber-400">
+				<div class="glass-card p-5 relative overflow-hidden">
+					<div class="absolute top-0 inset-x-0 h-0.5 bg-amber-400"></div>
 					<h3 class="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
 						<span class="i-ph-cloud-slash-fill w-4 h-4 text-amber-600"></span>
 						Horas sem valor da fonte
@@ -552,7 +576,8 @@ function fmtHour(iso: string | null | undefined): string {
 		</ul>
 
 		<div class="mt-4">
-			<div class="glass-card p-5 border-l-4 border-l-amber-400">
+			<div class="glass-card p-5 relative overflow-hidden">
+				<div class="absolute top-0 inset-x-0 h-0.5 bg-amber-400"></div>
 				<h3 class="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
 					<span class="i-ph-scales-fill w-4 h-4 text-amber-600"></span>
 					Ressalvas que citam {POLLUTANT_LABEL[pollutant]} ({pollutantCaveats.length} de {data.caveats.length})
@@ -604,10 +629,10 @@ function fmtHour(iso: string | null | undefined): string {
 		<div class="mt-4 bg-amber-50 border border-amber-200 text-amber-900 text-sm rounded-2xl px-4 py-3 flex items-start gap-2.5" role="note">
 			<span class="i-ph-warning-fill w-4 h-4 text-amber-600 shrink-0 mt-0.5"></span>
 			<span>
-				<strong>Esta página é a janela de previsão — ela não atesta o modelo.</strong>
+				<strong>Esta sub-aba é a janela de previsão — ela não atesta o modelo.</strong>
 				Tudo aqui é projeção para as próximas {data.window.hours} horas, do mesmo modelo
 				que o dashboard mostra. A medição de erro fica no
-				<a href="/comparacao" class="underline decoration-2 underline-offset-2 hover:text-amber-800">
+				<a href="/comparacao" onclick={handleHoldoutLinkClick} class="underline decoration-2 underline-offset-2 hover:text-amber-800">
 					holdout
 				</a>, em outro artefato e em outra janela; e ela não valida esta previsão, nem
 				esta previsão valida o holdout.

@@ -89,6 +89,27 @@
     button:active {
       transform: scale(0.98);
     }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      justify-content: center;
+    }
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #0f172a;
+      border: 1px solid #cbd5e1;
+      padding: 0.75rem 1.5rem;
+      border-radius: 0.75rem;
+      font-size: 0.875rem;
+      font-weight: 700;
+      text-decoration: none;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>
@@ -99,7 +120,10 @@
     </div>
     <h1>Sem conexão com a internet</h1>
     <p>Você está offline no momento. O AetherML mantém os dados da última previsão salvos no seu aparelho para consulta imediata.</p>
-    <button onclick="window.location.reload()">Tentar Reconectar</button>
+    <div class="actions">
+      <a href="/" class="btn-secondary">Abrir Painel Salvo</a>
+      <button onclick="window.location.reload()">Tentar Reconectar</button>
+    </div>
   </div>
 </body>
 </html>
