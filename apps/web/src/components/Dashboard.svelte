@@ -86,9 +86,18 @@ function coordsOf(s: any): { latitude: number; longitude: number } {
 	};
 }
 
+// Garante metadados das 9 estações mesmo que a ilha tenha sido montada sem stationsMeta
+const effectiveStationsMeta = $derived.by<StationMeta[]>(() => {
+	if (stationsMeta && stationsMeta.length > 0) return stationsMeta;
+	if (!bundle) return [];
+	return Object.values(bundle)
+		.map((item: any) => item?.station as StationMeta)
+		.filter(Boolean);
+});
+
 function stationWithFlags(id: string): StationMeta {
 	return (
-		stationsMeta.find((s) => s.id === id) ??
+		effectiveStationsMeta.find((s) => s.id === id) ??
 		(bundle?.[id]?.station as StationMeta) ?? {
 			id,
 			name: id,
@@ -274,10 +283,13 @@ function applyStation(
 	}
 }
 
-function handleChange(id: string, origin: "manual" | "gps") {
+function handleChange(
+	id: string,
+	origin: "manual" | "gps",
+	distanceKm: number | null = null,
+) {
 	if (origin === "gps") {
-		// LocationBar já resolveu o nearest; recalcula distância p/ exibição
-		applyStation(id, "gps", gpsDistance);
+		applyStation(id, "gps", distanceKm ?? gpsDistance);
 	} else {
 		applyStation(id, "manual", null);
 	}
@@ -335,7 +347,9 @@ async function fetchLiveOpenMeteoFallback(targetId: string) {
 	if (inFlightStations.has(targetId)) return;
 	inFlightStations.add(targetId);
 	try {
-		const st = stationsMeta.find((s) => s.id === targetId) ?? stationsMeta[0];
+		const st =
+			effectiveStationsMeta.find((s) => s.id === targetId) ??
+			effectiveStationsMeta[0];
 		if (!st) return;
 		const lat = st.lat ?? st.latitude ?? -20.2764;
 		const lon = st.lon ?? st.longitude ?? -40.2881;
@@ -507,30 +521,46 @@ async function loadForecastData(forceRefresh = false) {
 onMount(() => {
 	// 1) Resolve estação inicial: salva > GPS silencioso (só se não há salva) > default
 	const stored = loadStationId();
-	const normList = stationsMeta.map((s) => ({ ...s, ...coordsOf(s as any) }));
-	if (stored && normList.some((s) => s.id === stored)) {
-		const r = resolveActiveStation(normList as any, { storedId: stored });
+	const normList = effectiveStationsMeta.map((s) => ({
+		...s,
+		...coordsOf(s as any),
+	}));
+	if (
+		stored &&
+		(normList.length === 0 || normList.some((s) => s.id === stored))
+	) {
+		const r =
+			normList.length > 0
+				? resolveActiveStation(normList as any, { storedId: stored })
+				: { stationId: stored, reason: "saved" as const, distanceKm: null };
 		activeId = r.stationId;
 		source = "saved";
+		gpsDistance = null;
 	} else {
 		getUserPosition(5000)
 			.then((pos) => {
-				const r = resolveActiveStation(normList as any, {
+				if (source === "manual" || loadStationId()) return;
+				const currentNorm = effectiveStationsMeta.map((s) => ({
+					...s,
+					...coordsOf(s as any),
+				}));
+				const r = resolveActiveStation(currentNorm as any, {
 					userLat: pos.lat,
 					userLon: pos.lon,
 					defaultId: initialStationId,
 				});
 				activeId = r.stationId;
 				source = r.reason === "gps" ? "gps" : "default";
+				gpsDistance = r.distanceKm ?? null;
 				if (r.reason === "gps") {
-					const n = nearestStation(pos.lat, pos.lon, normList as any);
-					gpsDistance = Math.round(n.distanceKm * 10) / 10;
+					saveStationId(activeId);
 				}
-				saveStationId(activeId);
 			})
 			.catch(() => {
+				if (source === "manual" || loadStationId()) return;
 				activeId = initialStationId;
 				source = "default";
+				gpsDistance = null;
 			});
 	}
 
@@ -573,7 +603,7 @@ onMount(() => {
 
 <!-- Seletor + GPS -->
 <LocationBar
-  stations={stationsMeta}
+  stations={effectiveStationsMeta}
   activeId={activeId}
   source={source}
   distanceKm={gpsDistance}
@@ -624,7 +654,7 @@ onMount(() => {
             <span class="opacity-60">&bull;</span>
             <span>{formatPollutantName(currentPoint.primary)}</span>
           </div>
-          <p class="mt-1 text-[10px] uppercase font-bold tracking-wider text-slate-400">{estimateLine(activeOrigin)}</p>
+          <p class="mt-1 text-[10px] uppercase font-bold tracking-wider text-slate-500">{estimateLine(activeOrigin)}</p>
           <div class="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-left text-xs text-slate-700 leading-snug w-full">
             <span class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Recomendação de Saúde:</span>
             {iqarAdvice(currentPoint.classification)}
@@ -656,15 +686,15 @@ onMount(() => {
             </summary>
             <div class="mt-2.5 pt-2.5 border-t border-slate-200/80 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
               <div>
-                <span class="text-slate-400 block">Classificação oficial:</span>
+                <span class="text-slate-500 block">Classificação oficial:</span>
                 <strong class="text-slate-700">CONAMA 491/2018 (5 faixas)</strong>
               </div>
               <div>
-                <span class="text-slate-400 block">Entradas meteorológicas:</span>
+                <span class="text-slate-500 block">Entradas meteorológicas:</span>
                 <strong class="text-slate-700">Open-Meteo DB-First (cache local)</strong>
               </div>
               <div>
-                <span class="text-slate-400 block">Explicabilidade:</span>
+                <span class="text-slate-500 block">Explicabilidade:</span>
                 <strong class="text-slate-700">Atribuição física Saabas (O(K·D))</strong>
               </div>
             </div>
@@ -753,7 +783,7 @@ onMount(() => {
           <div class="mt-1">
             <span class="sr-only">Média do IQAr no dia:</span>
             <span class="text-4xl font-black font-mono leading-none text-slate-900 tabular-nums">{day.avgIqar}</span>
-            <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mt-1">média do dia</span>
+            <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-1">média do dia</span>
           </div>
 
           <span class={`chip mt-2 self-center !text-[10px] font-bold ${badgeClass(day.classification)} flex items-center justify-center gap-1`}>
@@ -764,7 +794,7 @@ onMount(() => {
           <!-- Figura secundária: o PICO, separado por um fio para não competir com a média. -->
           <div class="mt-auto pt-2.5 border-t border-slate-200 text-[11px] text-slate-500">
             <span class="sr-only">Pico horário do dia:</span>
-            <span class="uppercase tracking-wider text-[9px] font-bold text-slate-400">pico horário</span>
+            <span class="uppercase tracking-wider text-[9px] font-bold text-slate-500">pico horário</span>
             <span class="font-mono font-semibold text-slate-700 ml-1">{day.maxIqar}</span>
             <span class="text-slate-300 mx-0.5">&middot;</span>
             <span>{formatPollutantName(day.primary)}</span>
@@ -789,7 +819,12 @@ onMount(() => {
         <h2 class="section-title"><span class="section-dot"></span>Distribuição espacial</h2>
         <span class="text-xs text-slate-500">9 estações ativas</span>
       </div>
-      <RmgvMap stations={stationsList} selectedStationId={activeId} onSelectStation={(id) => applyStation(id, "manual", null)} />
+      <RmgvMap
+        stations={stationsList}
+        selectedStationId={activeId}
+        onSelectStation={(id, origin = "manual", dist = null) =>
+          applyStation(id, origin, dist)}
+      />
     </div>
   </div>
 

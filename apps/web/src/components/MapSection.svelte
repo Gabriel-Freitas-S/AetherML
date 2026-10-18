@@ -10,6 +10,7 @@
      que ninguém pediu. O pin e o cartão da lista se destacam entre si; o link
      leva à página da estação. -->
 <script lang="ts">
+import { onMount } from "svelte";
 import {
 	CONCENTRATION_UNIT,
 	POLLUTANT_LABEL,
@@ -19,6 +20,7 @@ import {
 	iqarIcon,
 } from "../lib/comparison";
 import { formatConcentration } from "../lib/dashboard-sections";
+import { loadStationId, saveStationId } from "../lib/location";
 import RmgvMap from "./Map.svelte";
 
 interface MapStation {
@@ -37,10 +39,20 @@ interface MapStation {
 
 const { stations = [] }: { stations?: MapStation[] } = $props();
 
-let selectedId = $state<string>("");
+let selectedId = $state<string>(stations[0]?.id ?? "ramqar_camburi");
+
+onMount(() => {
+	const saved = loadStationId();
+	if (saved && stations.some((s) => s.id === saved)) {
+		selectedId = saved;
+	} else if (stations[0]?.id) {
+		selectedId = stations[0].id;
+	}
+});
 
 function select(id: string) {
 	selectedId = id;
+	saveStationId(id);
 }
 
 function pollutantLabel(primary?: string): string {
@@ -69,8 +81,8 @@ function pollutantLabel(primary?: string): string {
     <RmgvMap stations={stations} selectedStationId={selectedId} onSelectStation={select} />
   </div>
 
-  <div class="glass-card p-4 space-y-3 max-h-[340px] lg:max-h-[460px] overflow-y-auto">
-    <h3 class="text-xs uppercase font-bold text-slate-400 tracking-wider">Estações de Monitoramento</h3>
+  <div class="glass-card p-4 space-y-3 max-h-[380px] lg:max-h-[460px] overflow-y-auto">
+    <h3 class="text-xs uppercase font-bold text-slate-500 tracking-wider">Estações de Monitoramento</h3>
     {#each stations as s (s.id)}
       {@const active = selectedId === s.id}
       <div

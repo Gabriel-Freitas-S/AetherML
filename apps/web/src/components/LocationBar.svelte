@@ -1,7 +1,10 @@
 <!-- apps/web/src/components/LocationBar.svelte — Seletor de estação + GPS inteligente -->
 <script lang="ts">
-import { nearestStation } from "@aetherml/geo";
-import { getUserPosition } from "../lib/location";
+import {
+	formatGpsError,
+	getUserPosition,
+	resolveGpsNearest,
+} from "../lib/location";
 
 import StationPicker from "./StationPicker.svelte";
 
@@ -26,38 +29,35 @@ const {
 	activeId?: string;
 	source?: "saved" | "gps" | "default" | "fallback" | "manual";
 	distanceKm?: number | null;
-	onChange?: (id: string, origin: "manual" | "gps") => void;
+	onChange?: (
+		id: string,
+		origin: "manual" | "gps",
+		distanceKm?: number | null,
+	) => void;
 } = $props();
 
 let gpsLoading = $state(false);
 let gpsError = $state<string | null>(null);
 
-function coordsOf(s: StationMeta): { latitude: number; longitude: number } {
-	return {
-		latitude: s.latitude ?? s.lat ?? 0,
-		longitude: s.longitude ?? s.lon ?? 0,
-	};
-}
-
 async function useGps() {
 	gpsError = null;
+	if (!stations.length) {
+		gpsError =
+			"Lista de estações ainda não carregada. Tente novamente em instantes.";
+		return;
+	}
 	gpsLoading = true;
 	try {
 		const pos = await getUserPosition();
-		const list = stations.map((s) => ({ ...s, ...coordsOf(s) }));
-		const nearest = nearestStation(pos.lat, pos.lon, list as any);
-		if (onChange) onChange(nearest.station.id, "gps");
-	} catch (err: any) {
-		if (err?.code === 1) {
+		const nearest = resolveGpsNearest(pos, stations);
+		if (!nearest) {
 			gpsError =
-				"Permissão de localização bloqueada no navegador. Escolha uma estação na lista ao lado.";
-		} else if (err?.code === 3 || err?.message?.includes("Tempo esgotado")) {
-			gpsError =
-				"Tempo limite para obter GPS esgotado. Tente novamente ou selecione sua estação na lista.";
-		} else {
-			gpsError =
-				"Não foi possível obter sua localização atual. Selecione sua estação na lista.";
+				"Não foi possível determinar a estação mais próxima. Selecione sua estação na lista.";
+			return;
 		}
+		onChange?.(nearest.stationId, "gps", nearest.distanceKm);
+	} catch (err: unknown) {
+		gpsError = formatGpsError(err);
 	} finally {
 		gpsLoading = false;
 	}
