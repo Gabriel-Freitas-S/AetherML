@@ -91,3 +91,34 @@ test("runRecursiveForecast: recursão fiel com sementes de 24h, lags autoregress
 	// pm25_lag24 é a feature índice 20
 	assert.equal(capturedFeatures[24][20], 12.5);
 });
+
+test("runRecursiveForecast: rejeita calibração ausente ou vazia (require_calibration)", async () => {
+	await assert.rejects(
+		async () => {
+			await runRecursiveForecast({
+				stationId: "ramqar_camburi",
+				meteo: { time: ["2026-10-01T00:00"] } as any,
+				aq: { time: ["2026-10-01T00:00"] } as any,
+				calibration: {},
+				predictFn: () => ({}),
+			});
+		},
+		{ message: /require_calibration/ },
+	);
+});
+
+test("runRecursiveForecast: rejeita histórico insuficiente (< 24h) para sementes", async () => {
+	const shortTimes = ["2026-10-01T00:00", "2026-10-01T01:00"];
+	await assert.rejects(
+		async () => {
+			await runRecursiveForecast({
+				stationId: "ramqar_camburi",
+				meteo: { time: shortTimes } as any,
+				aq: { time: shortTimes } as any,
+				calibration: { bias: { pm25: 0.1 } },
+				predictFn: () => ({}),
+			});
+		},
+		{ message: /Histórico insuficiente/ },
+	);
+});

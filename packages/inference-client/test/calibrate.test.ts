@@ -63,6 +63,13 @@ test("calibrateValue: calibração com dados reais de calibration.json", () => {
 		isotonic: {},
 	};
 	assert.equal(calibrateValue("o3", 20.0, fakeCal), 21.5);
+
+	// Teste com target declarado em isotonic porém vazio: devolve inalterado (não cai em bias)
+	const fakeCalIsoEmpty = {
+		bias: { o3: 1.5 },
+		isotonic: { o3: { x: [], y: [] } },
+	};
+	assert.equal(calibrateValue("o3", 20.0, fakeCalIsoEmpty), 20.0);
 });
 
 test("clampValue: respeita CLAMP mínimo e arredonda para 2 casas", () => {

@@ -74,7 +74,11 @@ function getAqValue(aq: AQSeries, target: string, index: number): number {
 	else if (target === "o3") arr = aq.ozone ?? aq.o3;
 	else if (target === "no2") arr = aq.nitrogen_dioxide ?? aq.no2;
 	else if (target === "so2") arr = aq.sulphur_dioxide ?? aq.so2;
-	return arr?.[index] ?? 10.0;
+	const val = arr?.[index];
+	if (val === undefined || Number.isNaN(val)) {
+		throw new Error(`Valor ausente de AQ para ${target} no índice ${index}`);
+	}
+	return Number(val);
 }
 
 /**
@@ -97,7 +101,19 @@ export async function runRecursiveForecast(
 		predictFn,
 	} = options;
 
+	if (!calibration || (!calibration.isotonic && !calibration.bias)) {
+		throw new Error(
+			"Calibração ausente ou vazia: require_calibration obrigatório",
+		);
+	}
+	if (!aq || !meteo) {
+		throw new Error("Séries de AQ e meteorologia são obrigatórias");
+	}
 	const times = aq.time || meteo.time;
+	if (!times || times.length === 0) {
+		throw new Error("Séries temporais vazias");
+	}
+
 	const cutoff13 = cutoff ? cutoff.slice(0, 13) : "";
 
 	let nowIdx = -1;
@@ -109,7 +125,9 @@ export async function runRecursiveForecast(
 		}
 	}
 	if (nowIdx < 23) {
-		nowIdx = Math.min(23, times.length - 1);
+		throw new Error(
+			`Histórico insuficiente para sementes de 24h: nowIdx=${nowIdx} (mínimo 23)`,
+		);
 	}
 
 	const futIdx: number[] = [];
@@ -129,7 +147,13 @@ export async function runRecursiveForecast(
 
 	const histPblh: number[] = [];
 	for (let k = nowIdx - 5; k <= nowIdx; k++) {
-		histPblh.push(Number(meteo.boundary_layer_height?.[k] ?? 300));
+		const val = meteo.boundary_layer_height?.[k];
+		if (val === undefined || Number.isNaN(val)) {
+			throw new Error(
+				`boundary_layer_height ausente no histórico no índice ${k}`,
+			);
+		}
+		histPblh.push(Number(val));
 	}
 
 	const preds: Record<string, number[]> = {
@@ -147,14 +171,26 @@ export async function runRecursiveForecast(
 		const ts = times[gi];
 		if (!ts) break;
 
+		if (
+			meteo.temperature_2m?.[gi] === undefined ||
+			meteo.relative_humidity_2m?.[gi] === undefined ||
+			meteo.wind_speed_10m?.[gi] === undefined ||
+			meteo.wind_direction_10m?.[gi] === undefined ||
+			meteo.pressure_msl?.[gi] === undefined ||
+			meteo.shortwave_radiation?.[gi] === undefined ||
+			meteo.boundary_layer_height?.[gi] === undefined
+		) {
+			throw new Error(`Variável meteorológica ausente no índice futuro ${gi}`);
+		}
+
 		const mNow = {
-			temperature_2m: Number(meteo.temperature_2m?.[gi] ?? 20),
-			relative_humidity_2m: Number(meteo.relative_humidity_2m?.[gi] ?? 60),
-			wind_speed_10m: Number(meteo.wind_speed_10m?.[gi] ?? 10),
-			wind_direction_10m: Number(meteo.wind_direction_10m?.[gi] ?? 0),
-			pressure_msl: Number(meteo.pressure_msl?.[gi] ?? 1013),
-			shortwave_radiation: Number(meteo.shortwave_radiation?.[gi] ?? 0),
-			boundary_layer_height: Number(meteo.boundary_layer_height?.[gi] ?? 400),
+			temperature_2m: Number(meteo.temperature_2m[gi]),
+			relative_humidity_2m: Number(meteo.relative_humidity_2m[gi]),
+			wind_speed_10m: Number(meteo.wind_speed_10m[gi]),
+			wind_direction_10m: Number(meteo.wind_direction_10m[gi]),
+			pressure_msl: Number(meteo.pressure_msl[gi]),
+			shortwave_radiation: Number(meteo.shortwave_radiation[gi]),
+			boundary_layer_height: Number(meteo.boundary_layer_height[gi]),
 		};
 
 		// lag24 na hora futura: hist[step] se step < 24, senão preds[t][step - 24]

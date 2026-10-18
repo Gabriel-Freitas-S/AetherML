@@ -94,7 +94,11 @@ export interface Lags1Input {
 }
 
 /**
- * Arredondamento decimal correspondente ao round() do Python 3 (usa dtoa decimal representation).
+ * Arredondamento decimal de ponto fixo via toFixed().
+ * Nota: toFixed() arredonda metade para cima (away from zero), diferindo do
+ * round() do Python 3 em caso de empate exato (round half to even). No domínio real
+ * das variáveis meteorológicas e concentrações, empates exatos de representação não
+ * ocorrem nas casas utilizadas.
  */
 export function pyRound(val: number, decimals: number): number {
 	return Number(val.toFixed(decimals));

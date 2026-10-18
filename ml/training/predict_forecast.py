@@ -191,6 +191,7 @@ def predict_all(
             lags["pblh6"] = (
                 sum((hist_pblh + [m_now["boundary_layer_height"]])[-7:-1]) / 6.0
             )
+            hist_pblh.append(m_now["boundary_layer_height"])
             aq_est = {
                 t: preds[t][-1] if preds[t] else hist_aq[t][-1]
                 for t in ("pm25", "pm10", "o3", "no2", "so2")

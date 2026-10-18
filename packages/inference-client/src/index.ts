@@ -44,6 +44,7 @@ export interface WorkerResultMsg {
 	type: "result";
 	version: string;
 	stationId: string;
+	requestId?: string;
 	points: PredictionPoint[];
 	saabas: SaabasContribution[];
 	latencyMs: number;
@@ -53,6 +54,8 @@ export interface WorkerResultMsg {
 export interface WorkerErrorMsg {
 	type: "error";
 	message: string;
+	stationId?: string;
+	requestId?: string;
 }
 
 export type WorkerOutMsg = WorkerReadyMsg | WorkerResultMsg | WorkerErrorMsg;
@@ -61,6 +64,7 @@ export class AetherInferenceClient {
 	private worker: Worker;
 	private isReady = false;
 	private readyCallbacks: Array<() => void> = [];
+	private reqCounter = 0;
 
 	constructor(workerOrUrl: string | URL | Worker) {
 		if (typeof Worker !== "undefined" && workerOrUrl instanceof Worker) {
@@ -95,20 +99,33 @@ export class AetherInferenceClient {
 		featureNames: string[],
 		rows: number[][],
 	): Promise<WorkerResultMsg> {
+		const reqId = `req_${++this.reqCounter}_${stationId}`;
 		return new Promise((resolve, reject) => {
 			const handler = (e: MessageEvent<WorkerOutMsg>) => {
-				if (e.data.type === "result") {
-					this.worker.removeEventListener("message", handler);
-					resolve(e.data);
-				} else if (e.data.type === "error") {
-					this.worker.removeEventListener("message", handler);
-					reject(new Error(e.data.message));
+				const data = e.data;
+				if (data.type === "result") {
+					const matchReq = data.requestId ? data.requestId === reqId : true;
+					const matchStation = data.stationId === stationId;
+					if (matchReq && matchStation) {
+						this.worker.removeEventListener("message", handler);
+						resolve(data);
+					}
+				} else if (data.type === "error") {
+					const matchReq = data.requestId ? data.requestId === reqId : true;
+					const matchStation = data.stationId
+						? data.stationId === stationId
+						: true;
+					if (matchReq && matchStation) {
+						this.worker.removeEventListener("message", handler);
+						reject(new Error(data.message));
+					}
 				}
 			};
 			this.worker.addEventListener("message", handler);
 			this.worker.postMessage({
 				type: "predict",
 				stationId,
+				requestId: reqId,
 				featureNames,
 				rows,
 			});
@@ -122,21 +139,36 @@ export class AetherInferenceClient {
 		aq: AQSeries;
 		cutoff?: string;
 		hours?: number;
+		requestId?: string;
 	}): Promise<WorkerResultMsg> {
+		const reqId =
+			params.requestId || `req_${++this.reqCounter}_${params.stationId}`;
 		return new Promise((resolve, reject) => {
 			const handler = (e: MessageEvent<WorkerOutMsg>) => {
-				if (e.data.type === "result") {
-					this.worker.removeEventListener("message", handler);
-					resolve(e.data);
-				} else if (e.data.type === "error") {
-					this.worker.removeEventListener("message", handler);
-					reject(new Error(e.data.message));
+				const data = e.data;
+				if (data.type === "result") {
+					const matchReq = data.requestId ? data.requestId === reqId : true;
+					const matchStation = data.stationId === params.stationId;
+					if (matchReq && matchStation) {
+						this.worker.removeEventListener("message", handler);
+						resolve(data);
+					}
+				} else if (data.type === "error") {
+					const matchReq = data.requestId ? data.requestId === reqId : true;
+					const matchStation = data.stationId
+						? data.stationId === params.stationId
+						: true;
+					if (matchReq && matchStation) {
+						this.worker.removeEventListener("message", handler);
+						reject(new Error(data.message));
+					}
 				}
 			};
 			this.worker.addEventListener("message", handler);
 			this.worker.postMessage({
 				type: "predict_forecast",
 				...params,
+				requestId: reqId,
 			});
 		});
 	}
@@ -146,14 +178,22 @@ export class AetherInferenceClient {
 		deltas: Record<string, number>,
 		featureNames: string[],
 	): Promise<WorkerResultMsg> {
+		const reqId = `req_${++this.reqCounter}_simulation`;
 		return new Promise((resolve, reject) => {
 			const handler = (e: MessageEvent<WorkerOutMsg>) => {
-				if (e.data.type === "result") {
-					this.worker.removeEventListener("message", handler);
-					resolve(e.data);
-				} else if (e.data.type === "error") {
-					this.worker.removeEventListener("message", handler);
-					reject(new Error(e.data.message));
+				const data = e.data;
+				if (data.type === "result") {
+					const matchReq = data.requestId ? data.requestId === reqId : true;
+					if (matchReq && data.stationId === "simulation") {
+						this.worker.removeEventListener("message", handler);
+						resolve(data);
+					}
+				} else if (data.type === "error") {
+					const matchReq = data.requestId ? data.requestId === reqId : true;
+					if (matchReq) {
+						this.worker.removeEventListener("message", handler);
+						reject(new Error(data.message));
+					}
 				}
 			};
 			this.worker.addEventListener("message", handler);
@@ -162,6 +202,7 @@ export class AetherInferenceClient {
 				base: baseRow,
 				deltas,
 				featureNames,
+				requestId: reqId,
 			});
 		});
 	}

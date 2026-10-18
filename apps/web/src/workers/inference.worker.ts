@@ -16,12 +16,14 @@ type InitMsg = { type: "init"; manifestUrl?: string };
 type PredictMsg = {
 	type: "predict";
 	stationId: string;
+	requestId?: string;
 	featureNames: string[];
 	rows: number[][];
 };
 type PredictForecastMsg = {
 	type: "predict_forecast";
 	stationId: string;
+	requestId?: string;
 	flags?: StationFlags;
 	meteo: HourlySeries;
 	aq: AQSeries;
@@ -30,6 +32,7 @@ type PredictForecastMsg = {
 };
 type SimulateMsg = {
 	type: "simulate";
+	requestId?: string;
 	base: number[];
 	deltas: Record<string, number>;
 	featureNames: string[];
@@ -99,11 +102,24 @@ function computeSaabas(
 	return { baseValue: topology.base_value, phi };
 }
 
+async function verifySha256(
+	buffer: ArrayBuffer,
+	expectedHex: string,
+): Promise<boolean> {
+	if (!expectedHex) return true;
+	const digest = await crypto.subtle.digest("SHA-256", buffer);
+	const hashArray = Array.from(new Uint8Array(digest));
+	const hashHex = hashArray
+		.map((b) => b.toString(16).padStart(2, "0"))
+		.join("");
+	return hashHex.toLowerCase() === expectedHex.toLowerCase();
+}
+
 async function init(manifestUrl = "/models/registry.json") {
 	try {
-		// Carrega onnxruntime-web dinamicamente
+		// Carrega onnxruntime-web/wasm dinamicamente
 		if (!ort) {
-			const ortModule = await import("onnxruntime-web");
+			const ortModule = await import("onnxruntime-web/wasm");
 			ort = (ortModule as any).default || ortModule;
 			if (ort.env?.wasm) {
 				ort.env.wasm.wasmPaths = "/wasm/";
@@ -117,46 +133,63 @@ async function init(manifestUrl = "/models/registry.json") {
 
 		// Carrega o manifesto
 		const res = await fetch(manifestUrl);
+		if (!res.ok) {
+			throw new Error(
+				`Falha ao carregar manifesto ${manifestUrl}: HTTP ${res.status}`,
+			);
+		}
 		const manifest = await res.json();
 		version = manifest.active_version || "v2026.38.5";
 		if (manifest.feature_names_v1 && Array.isArray(manifest.feature_names_v1)) {
 			featureNames = manifest.feature_names_v1;
 		}
 
-		// Carrega calibration.json se disponível
-		try {
-			const calRes = await fetch("/models/calibration.json");
-			if (calRes.ok) {
-				calibrationData = await calRes.json();
-			}
-		} catch (err) {
-			console.warn("[Worker] Falha ao carregar calibration.json:", err);
+		// Carrega calibration.json obrigatório (require_calibration)
+		const calRes = await fetch("/models/calibration.json");
+		if (!calRes.ok) {
+			throw new Error(
+				`Falha ao carregar calibration.json: HTTP ${calRes.status}`,
+			);
+		}
+		calibrationData = await calRes.json();
+		if (
+			!calibrationData ||
+			(!calibrationData.isotonic && !calibrationData.bias)
+		) {
+			throw new Error("calibration.json ausente ou inválido");
 		}
 
 		const targets: Pollutant[] = ["pm25", "pm10", "o3", "no2", "so2"];
 
-		// Carrega modelos ONNX e Topologias Saabas em paralelo
+		// Carrega modelos ONNX com verificação SHA-256 e Topologias Saabas em paralelo
 		await Promise.all(
 			targets.map(async (t) => {
-				try {
-					const modelUrl = `/models/${t}.onnx`;
-					const modelRes = await fetch(modelUrl);
-					const modelBuffer = await modelRes.arrayBuffer();
-					sessions[t] = await ort.InferenceSession.create(modelBuffer, {
-						executionProviders: ["wasm"],
-						graphOptimizationLevel: "all",
-					});
-				} catch (err) {
-					console.warn(
-						`[Worker] Falha ao carregar sessão ONNX para ${t}:`,
-						err,
+				const modelUrl = `/models/${t}.onnx`;
+				const modelRes = await fetch(modelUrl);
+				if (!modelRes.ok) {
+					throw new Error(
+						`HTTP ${modelRes.status} ao carregar modelo ONNX ${modelUrl}`,
 					);
 				}
+				const modelBuffer = await modelRes.arrayBuffer();
+				const expectedSha = manifest.models?.[t]?.sha256;
+				if (expectedSha) {
+					const okSha = await verifySha256(modelBuffer, expectedSha);
+					if (!okSha) {
+						throw new Error(`SHA-256 mismatch no modelo ${t}.onnx`);
+					}
+				}
+				sessions[t] = await ort.InferenceSession.create(modelBuffer, {
+					executionProviders: ["wasm"],
+					graphOptimizationLevel: "all",
+				});
 
 				try {
 					const topoUrl = `/models/${t}.topology.json`;
 					const topoRes = await fetch(topoUrl);
-					topologies[t] = await topoRes.json();
+					if (topoRes.ok) {
+						topologies[t] = await topoRes.json();
+					}
 				} catch (err) {
 					console.warn(
 						`[Worker] Falha ao carregar topologia Saabas para ${t}:`,
@@ -170,6 +203,7 @@ async function init(manifestUrl = "/models/registry.json") {
 		self.postMessage({ type: "ready", version, backend: "wasm-simd" });
 	} catch (err: any) {
 		console.error("[Worker] Erro na inicialização:", err);
+		isInitialized = false;
 		self.postMessage({ type: "error", message: err.message || String(err) });
 	}
 }
@@ -185,6 +219,7 @@ async function predictForecast(
 	aq: AQSeries,
 	cutoff?: string,
 	hours = 120,
+	requestId?: string,
 ) {
 	const t0 = performance.now();
 	if (!isInitialized) {
@@ -192,6 +227,17 @@ async function predictForecast(
 	}
 
 	const targets: Pollutant[] = ["pm25", "pm10", "o3", "no2", "so2"];
+	for (const t of targets) {
+		if (!sessions[t]) {
+			throw new Error(`Sessão ONNX para o alvo ${t} não está disponível`);
+		}
+	}
+	if (
+		!calibrationData ||
+		(!calibrationData.isotonic && !calibrationData.bias)
+	) {
+		throw new Error("Calibração ausente para predictForecast");
+	}
 
 	const forecast = await runRecursiveForecast({
 		stationId,
@@ -212,17 +258,15 @@ async function predictForecast(
 			const rawMap: Record<string, number> = {};
 			for (const t of targets) {
 				const session = sessions[t];
-				if (session) {
-					try {
-						const output = await session.run({ input: tensor });
-						const outTensor = output.variable || Object.values(output)[0];
-						rawMap[t] = Number((outTensor.data as Float32Array)[0]);
-					} catch (e) {
-						rawMap[t] = 10.0;
-					}
-				} else {
-					rawMap[t] = 10.0;
+				if (!session) {
+					throw new Error(`Sessão ONNX não inicializada para ${t}`);
 				}
+				const output = await session.run({ input: tensor });
+				const outTensor = output.variable || Object.values(output)[0];
+				if (!outTensor?.data?.length) {
+					throw new Error(`Saída vazia de inferência para ${t}`);
+				}
+				rawMap[t] = Number((outTensor.data as Float32Array)[0]);
 			}
 			return rawMap;
 		},
@@ -272,6 +316,7 @@ async function predictForecast(
 		type: "result",
 		version,
 		stationId,
+		requestId,
 		points,
 		saabas: saabasContributions,
 		baseValue,
@@ -283,6 +328,7 @@ async function predict(
 	stationId: string,
 	featNames: string[],
 	rows: number[][],
+	requestId?: string,
 ) {
 	const t0 = performance.now();
 	if (!isInitialized) {
@@ -290,6 +336,12 @@ async function predict(
 	}
 
 	const targets: Pollutant[] = ["pm25", "pm10", "o3", "no2", "so2"];
+	for (const t of targets) {
+		if (!sessions[t]) {
+			throw new Error(`Sessão ONNX para ${t} não carregada`);
+		}
+	}
+
 	const nHours = Math.min(120, rows.length);
 	const predictions: Record<Pollutant, number[]> = {
 		pm25: [],
@@ -302,31 +354,19 @@ async function predict(
 	// 1. Executa inferência com os modelos ONNX
 	for (const t of targets) {
 		const session = sessions[t];
-		if (session && rows.length > 0) {
-			try {
-				const nFeat = rows[0]?.length ?? featNames.length ?? 25;
-				const flatData = new Float32Array(nHours * nFeat);
-				for (let i = 0; i < nHours; i++) {
-					for (let j = 0; j < nFeat; j++) {
-						flatData[i * nFeat + j] = rows[i][j] ?? 0;
-					}
-				}
-				const tensor = new ort.Tensor("float32", flatData, [nHours, nFeat]);
-				const output = await session.run({ input: tensor });
-				const outTensor = output.variable || Object.values(output)[0];
-				const outData = outTensor.data as Float32Array;
-				for (let i = 0; i < nHours; i++) {
-					predictions[t].push(Math.max(0.5, Math.round(outData[i] * 10) / 10));
-				}
-			} catch (err) {
-				for (let i = 0; i < nHours; i++) {
-					predictions[t].push(Math.round((rows[i][0] || 15) * 1.2));
-				}
+		const nFeat = rows[0]?.length ?? featNames.length ?? 25;
+		const flatData = new Float32Array(nHours * nFeat);
+		for (let i = 0; i < nHours; i++) {
+			for (let j = 0; j < nFeat; j++) {
+				flatData[i * nFeat + j] = rows[i][j] ?? 0;
 			}
-		} else {
-			for (let i = 0; i < nHours; i++) {
-				predictions[t].push(12.0 + (i % 5));
-			}
+		}
+		const tensor = new ort.Tensor("float32", flatData, [nHours, nFeat]);
+		const output = await session.run({ input: tensor });
+		const outTensor = output.variable || Object.values(output)[0];
+		const outData = outTensor.data as Float32Array;
+		for (let i = 0; i < nHours; i++) {
+			predictions[t].push(Math.max(0.5, Math.round(outData[i] * 10) / 10));
 		}
 	}
 
@@ -373,6 +413,7 @@ async function predict(
 		type: "result",
 		version,
 		stationId,
+		requestId,
 		points,
 		saabas: saabasContributions,
 		baseValue,
@@ -384,6 +425,7 @@ async function simulate(
 	baseRow: number[],
 	deltas: Record<string, number>,
 	featNames: string[],
+	requestId?: string,
 ) {
 	const modified = [...baseRow];
 	for (const [feat, delta] of Object.entries(deltas)) {
@@ -392,28 +434,46 @@ async function simulate(
 			modified[idx] += delta;
 		}
 	}
-	await predict("simulation", featNames, [modified]);
+	await predict("simulation", featNames, [modified], requestId);
 }
 
 self.onmessage = async (e: MessageEvent<InMsg>) => {
+	const reqId = (e.data as any).requestId;
+	const stId = (e.data as any).stationId;
 	try {
 		if (e.data.type === "init") {
 			await init(e.data.manifestUrl);
 		} else if (e.data.type === "predict_forecast") {
 			await predictForecast(
 				e.data.stationId,
-				e.data.flags,
+				e.data.flags || {},
 				e.data.meteo,
 				e.data.aq,
 				e.data.cutoff,
 				e.data.hours,
+				e.data.requestId,
 			);
 		} else if (e.data.type === "predict") {
-			await predict(e.data.stationId, e.data.featureNames, e.data.rows);
+			await predict(
+				e.data.stationId,
+				e.data.featureNames,
+				e.data.rows,
+				e.data.requestId,
+			);
 		} else if (e.data.type === "simulate") {
-			await simulate(e.data.base, e.data.deltas, e.data.featureNames);
+			await simulate(
+				e.data.base,
+				e.data.deltas,
+				e.data.featureNames,
+				e.data.requestId,
+			);
 		}
 	} catch (err: any) {
-		self.postMessage({ type: "error", message: err?.message || String(err) });
+		self.postMessage({
+			type: "error",
+			message: err?.message || String(err),
+			stationId: stId,
+			requestId: reqId,
+		});
 	}
 };

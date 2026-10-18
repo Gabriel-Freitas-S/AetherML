@@ -75,7 +75,7 @@ export function calibrateValue(
 ): number {
 	if (!cal) return value;
 	const iso = cal.isotonic?.[target];
-	if (iso?.x && iso.x.length > 0) {
+	if (iso) {
 		return applyIsotonic([value], iso)[0];
 	}
 	return value + (cal.bias?.[target] ?? 0.0);

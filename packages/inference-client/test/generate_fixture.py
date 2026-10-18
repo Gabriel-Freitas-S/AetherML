@@ -18,17 +18,12 @@ def generate():
     with open(raw_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
-    # Pegamos indices específicos com condições variadas
-    cases = []
-    
-    # Caso 1: ramqar_camburi - pico dia de semana (segunda-feira 08h)
-    # 2026-07-06T08:00 (i=104)
-    # Caso 2: ramqar_camburi - madrugada dia de semana (segunda-feira 02h)
-    # 2026-07-06T02:00 (i=98)
-    # Caso 3: ramqar_camburi - tarde fim de semana (domingo 15h)
-    # 2026-07-05T15:00 (i=87)
-    # Caso 4: ramqar_enseada_sua - ponte/tráfego pico (segunda-feira 18h)
-    # 2026-07-06T18:00 (i=114)
+    # Casos de amostragem representativos com condições variadas (outubro/2026):
+    # - Caso 1: ramqar_camburi (quinta-feira 16h - tarde útil): idx=2200
+    # - Caso 2: ramqar_camburi (sexta-feira 12h - almoço): idx=2220
+    # - Caso 3: ramqar_camburi (sábado 18h - fim de semana): idx=2250
+    # - Caso 4: ramqar_enseada_sua (quinta-feira 16h - proximidade de ponte): idx=2200
+    # - Caso 5: ramqar_camburi (ordem V1 - 25 features legadas): idx=2200
     sample_specs = [
         ("ramqar_camburi", 2200, "v2", "camburi_quinta_tarde"),
         ("ramqar_camburi", 2220, "v2", "camburi_sexta_meiodia"),
