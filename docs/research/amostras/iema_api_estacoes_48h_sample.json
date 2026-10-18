@@ -1,0 +1,977 @@
+{
+  "1": {
+    "endpoint": "https://qualidadedoarapi.es.gov.br/api/mapa/1",
+    "pollutant_count": 5,
+    "series": [
+      {
+        "Poluente": "Dióxido de Enxofre",
+        "PoluenteSigla": "(SO₂)",
+        "Estacao": "EMQAr - RGV1",
+        "Max": "1.29",
+        "Min": "1.08",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "1.18",
+          "1.15",
+          "1.12",
+          "1.10",
+          "1.09",
+          "1.08"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Monóxido de Carbono",
+        "PoluenteSigla": "(CO)",
+        "Estacao": "EMQAr - RGV1",
+        "Max": "3.92",
+        "Min": "1.57",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "1.68",
+          "1.71",
+          "1.70",
+          "1.66",
+          "1.63",
+          "1.74"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Ozônio",
+        "PoluenteSigla": "(O₃)",
+        "Estacao": "EMQAr - RGV1",
+        "Max": "10.85",
+        "Min": "1.91",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "7.48",
+          "8.08",
+          "8.95",
+          "10.08",
+          "10.85",
+          "10.03"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Dióxido de Nitrogênio",
+        "PoluenteSigla": "(NO₂)",
+        "Estacao": "EMQAr - RGV1",
+        "Max": "5.66",
+        "Min": "0.78",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "2.03",
+          "1.43",
+          "1.05",
+          "0.81",
+          "0.78",
+          "3.62"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Respiráveis (<2,5µm)",
+        "PoluenteSigla": "(MP₂,₅)",
+        "Estacao": "EMQAr - RGV1",
+        "Max": "38.28",
+        "Min": "5.25",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "9.99",
+          "9.34",
+          "8.61",
+          "7.41",
+          "6.27",
+          "5.25"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      }
+    ]
+  },
+  "2": {
+    "endpoint": "https://qualidadedoarapi.es.gov.br/api/mapa/2",
+    "pollutant_count": 0,
+    "series": []
+  },
+  "3": {
+    "endpoint": "https://qualidadedoarapi.es.gov.br/api/mapa/3",
+    "pollutant_count": 4,
+    "series": [
+      {
+        "Poluente": "Dióxido de Enxofre",
+        "PoluenteSigla": "(SO₂)",
+        "Estacao": "EMQAr - RGV3",
+        "Max": "3.08",
+        "Min": "1.68",
+        "total_hours_returned": 42,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "1.77",
+          "1.81",
+          "1.90",
+          "1.96",
+          "1.99",
+          "2.10"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Dióxido de Nitrogênio",
+        "PoluenteSigla": "(NO₂)",
+        "Estacao": "EMQAr - RGV3",
+        "Max": "12.32",
+        "Min": "1.76",
+        "total_hours_returned": 42,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "5.53",
+          "3.44",
+          "5.04",
+          "3.08",
+          "3.32",
+          "3.93"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Respiráveis (<2,5µm)",
+        "PoluenteSigla": "(MP₂,₅)",
+        "Estacao": "EMQAr - RGV3",
+        "Max": "23.15",
+        "Min": "4.51",
+        "total_hours_returned": 42,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "4.93",
+          "4.75",
+          "4.65",
+          "4.58",
+          "4.54",
+          "4.51"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Inaláveis (<10µm)",
+        "PoluenteSigla": "(MP₁₀)",
+        "Estacao": "EMQAr - RGV3",
+        "Max": "34.04",
+        "Min": "19.04",
+        "total_hours_returned": 42,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "20.94",
+          "20.93",
+          "20.41",
+          "19.80",
+          "19.04",
+          "19.34"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      }
+    ]
+  },
+  "4": {
+    "endpoint": "https://qualidadedoarapi.es.gov.br/api/mapa/4",
+    "pollutant_count": 6,
+    "series": [
+      {
+        "Poluente": "Dióxido de Enxofre",
+        "PoluenteSigla": "(SO₂)",
+        "Estacao": "EMQAr - RGV4",
+        "Max": "2.49",
+        "Min": "2.27",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "2.45",
+          "2.45",
+          "2.46",
+          "2.47",
+          "2.47",
+          "2.47"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Dióxido de Nitrogênio",
+        "PoluenteSigla": "(NO₂)",
+        "Estacao": "EMQAr - RGV4",
+        "Max": "4.98",
+        "Min": "1.09",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "1.24",
+          "1.70",
+          "1.26",
+          "1.42",
+          "1.79",
+          "1.60"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Ozônio",
+        "PoluenteSigla": "(O₃)",
+        "Estacao": "EMQAr - RGV4",
+        "Max": "10.89",
+        "Min": "3.15",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "6.30",
+          "7.09",
+          "8.33",
+          "9.02",
+          "9.45",
+          "9.61"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Monóxido de Carbono",
+        "PoluenteSigla": "(CO)",
+        "Estacao": "EMQAr - RGV4",
+        "Max": "23.88",
+        "Min": "15.78",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "15.78",
+          "15.81",
+          "15.90",
+          "16.10",
+          "16.19",
+          "16.38"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Respiráveis (<2,5µm)",
+        "PoluenteSigla": "(MP₂,₅)",
+        "Estacao": "EMQAr - RGV4",
+        "Max": "41.22",
+        "Min": "21.16",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "26.88",
+          "26.84",
+          "26.10",
+          "25.19",
+          "24.68",
+          "24.65"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Inaláveis (<10µm)",
+        "PoluenteSigla": "(MP₁₀)",
+        "Estacao": "EMQAr - RGV4",
+        "Max": "35.37",
+        "Min": "14.01",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "27.92",
+          "28.05",
+          "28.12",
+          "28.17",
+          "28.22",
+          "28.25"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      }
+    ]
+  },
+  "5": {
+    "endpoint": "https://qualidadedoarapi.es.gov.br/api/mapa/5",
+    "pollutant_count": 3,
+    "series": [
+      {
+        "Poluente": "Dióxido de Enxofre",
+        "PoluenteSigla": "(SO₂)",
+        "Estacao": "EMQAr - RGV5",
+        "Max": "3.43",
+        "Min": "3.00",
+        "total_hours_returned": 34,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "3.40",
+          "3.42",
+          "3.42",
+          "3.43",
+          "3.43",
+          "3.41"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Inaláveis (<10µm)",
+        "PoluenteSigla": "(MP₁₀)",
+        "Estacao": "EMQAr - RGV5",
+        "Max": "3.78",
+        "Min": "2.21",
+        "total_hours_returned": 34,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "3.66",
+          "3.67",
+          "3.68",
+          "3.69",
+          "3.70",
+          "3.78"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Respiráveis (<2,5µm)",
+        "PoluenteSigla": "(MP₂,₅)",
+        "Estacao": "EMQAr - RGV5",
+        "Max": "15.40",
+        "Min": "9.83",
+        "total_hours_returned": 34,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "11.70",
+          "11.29",
+          "10.96",
+          "10.68",
+          "10.30",
+          "9.83"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      }
+    ]
+  },
+  "6": {
+    "endpoint": "https://qualidadedoarapi.es.gov.br/api/mapa/6",
+    "pollutant_count": 5,
+    "series": [
+      {
+        "Poluente": "Dióxido de Enxofre",
+        "PoluenteSigla": "(SO₂)",
+        "Estacao": "EMQAr - RGV6",
+        "Max": "1.16",
+        "Min": "1.04",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "1.16",
+          "1.16",
+          "1.16",
+          "1.16",
+          "1.15",
+          "1.14"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Monóxido de Carbono",
+        "PoluenteSigla": "(CO)",
+        "Estacao": "EMQAr - RGV6",
+        "Max": "1.64",
+        "Min": "0.51",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "0.61",
+          "0.59",
+          "0.57",
+          "0.53",
+          "0.52",
+          "0.51"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Ozônio",
+        "PoluenteSigla": "(O₃)",
+        "Estacao": "EMQAr - RGV6",
+        "Max": "11.59",
+        "Min": "4.61",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "6.99",
+          "7.84",
+          "8.72",
+          "9.57",
+          "10.10",
+          "10.41"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Inaláveis (<10µm)",
+        "PoluenteSigla": "(MP₁₀)",
+        "Estacao": "EMQAr - RGV6",
+        "Max": "10.88",
+        "Min": "2.60",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "5.14",
+          "4.77",
+          "4.23",
+          "3.43",
+          "2.86",
+          "2.60"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Respiráveis (<2,5µm)",
+        "PoluenteSigla": "(MP₂,₅)",
+        "Estacao": "EMQAr - RGV6",
+        "Max": "33.83",
+        "Min": "17.54",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "19.89",
+          "19.40",
+          "18.61",
+          "17.89",
+          "17.55",
+          "17.54"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      }
+    ]
+  },
+  "8": {
+    "endpoint": "https://qualidadedoarapi.es.gov.br/api/mapa/8",
+    "pollutant_count": 4,
+    "series": [
+      {
+        "Poluente": "Dióxido de Enxofre",
+        "PoluenteSigla": "(SO₂)",
+        "Estacao": "EMQAr - RGV8",
+        "Max": "2.09",
+        "Min": "1.84",
+        "total_hours_returned": 46,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "1.91",
+          "1.88",
+          "1.87",
+          "1.85",
+          "1.86",
+          "1.84"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Dióxido de Nitrogênio",
+        "PoluenteSigla": "(NO₂)",
+        "Estacao": "EMQAr - RGV8",
+        "Max": "3.44",
+        "Min": "0.83",
+        "total_hours_returned": 46,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "1.49",
+          "1.89",
+          "1.30",
+          "1.63",
+          "1.52",
+          "1.61"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Ozônio",
+        "PoluenteSigla": "(O₃)",
+        "Estacao": "EMQAr - RGV8",
+        "Max": "11.76",
+        "Min": "1.70",
+        "total_hours_returned": 46,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "6.95",
+          "7.86",
+          "8.89",
+          "10.10",
+          "10.98",
+          "11.28"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Monóxido de Carbono",
+        "PoluenteSigla": "(CO)",
+        "Estacao": "EMQAr - RGV8",
+        "Max": "4.12",
+        "Min": "3.17",
+        "total_hours_returned": 46,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "3.18",
+          "3.27",
+          "3.33",
+          "3.36",
+          "3.40",
+          "3.45"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      }
+    ]
+  },
+  "9": {
+    "endpoint": "https://qualidadedoarapi.es.gov.br/api/mapa/9",
+    "pollutant_count": 2,
+    "series": [
+      {
+        "Poluente": "Dióxido de Enxofre",
+        "PoluenteSigla": "(SO₂)",
+        "Estacao": "EMQAr - RGV9",
+        "Max": "11.76",
+        "Min": "2.08",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "2.09",
+          "2.08",
+          "2.08",
+          "2.08",
+          "2.09",
+          "2.09"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      },
+      {
+        "Poluente": "Partículas Respiráveis (<2,5µm)",
+        "PoluenteSigla": "(MP₂,₅)",
+        "Estacao": "EMQAr - RGV9",
+        "Max": "25.72",
+        "Min": "12.12",
+        "total_hours_returned": 47,
+        "DataHora_last6": [
+          "2026-10-18T11:00:00",
+          "2026-10-18T12:00:00",
+          "2026-10-18T13:00:00",
+          "2026-10-18T14:00:00",
+          "2026-10-18T15:00:00",
+          "2026-10-18T16:00:00"
+        ],
+        "ValorIqa_last6": [
+          "16.56",
+          "15.80",
+          "15.07",
+          "14.37",
+          "13.31",
+          "12.12"
+        ],
+        "FaixaIQA_last6": [
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa",
+          "Boa"
+        ]
+      }
+    ]
+  }
+}

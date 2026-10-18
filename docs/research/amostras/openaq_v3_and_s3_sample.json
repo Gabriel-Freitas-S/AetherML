@@ -1,0 +1,55 @@
+{
+  "tested_at": "2026-10-18T17:05:00-03:00",
+  "v3_api_test": {
+    "endpoint": "https://api.openaq.org/v3/locations?coordinates=-20.3125,-40.2870&radius=25000&limit=100",
+    "http_status": 401,
+    "response_body": {
+      "message": "Unauthorized. A valid API key must be provided in the X-API-Key header."
+    }
+  },
+  "mvt_tile_test": {
+    "endpoint": "https://tiles.openaq.org/locations/tiles/8/99/142.pbf",
+    "http_status": 200,
+    "decoded_locations_in_rmgv": [
+      {
+        "location_id": 3107138,
+        "provider_id": 66,
+        "provider": "AirGradient",
+        "name": "teste1-3077081",
+        "lat": -20.258241,
+        "lon": -40.278852,
+        "ismonitor": false,
+        "active": false,
+        "first_date": "2024-10-09",
+        "last_date": "2024-10-10",
+        "daily_files": 2
+      },
+      {
+        "location_id": 6126992,
+        "provider_id": 66,
+        "provider": "AirGradient",
+        "name": "Quality01-6096926",
+        "lat": -20.27117326,
+        "lon": -40.28868897,
+        "ismonitor": false,
+        "active": false,
+        "first_date": "2025-11-11",
+        "last_date": "2026-01-30",
+        "daily_files": 69
+      },
+      {
+        "location_id": 6126993,
+        "provider_id": 66,
+        "provider": "AirGradient",
+        "name": "Quality02-6096927",
+        "lat": -20.27118584,
+        "lon": -40.28867489,
+        "ismonitor": false,
+        "active": false,
+        "first_date": "2025-11-11",
+        "last_date": "2026-01-30",
+        "daily_files": 69
+      }
+    ]
+  }
+}

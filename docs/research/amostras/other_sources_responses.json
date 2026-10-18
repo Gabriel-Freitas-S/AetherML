@@ -1,0 +1,96 @@
+{
+  "sensor_community": {
+    "rmgv_bbox_endpoint": "https://data.sensor.community/airrohr/v1/filter/box=-20.5,-40.6,-20.0,-40.1",
+    "rmgv_bbox_http_status": 200,
+    "rmgv_bbox_response": [],
+    "brazil_endpoint": "https://data.sensor.community/airrohr/v1/filter/country=BR",
+    "brazil_http_status": 200,
+    "brazil_active_records": 59,
+    "brazil_es_records": 0,
+    "brazil_sample_record": {
+      "timestamp": "2026-10-18 20:07:57",
+      "sensordatavalues": [
+        {
+          "value_type": "temperature",
+          "value": "27.14",
+          "id": 72730349490
+        },
+        {
+          "value_type": "humidity",
+          "value": "63.42",
+          "id": 72730349491
+        }
+      ],
+      "sensor": {
+        "sensor_type": {
+          "name": "SHT31",
+          "manufacturer": "Sensirion AG",
+          "id": 27
+        },
+        "pin": "7",
+        "id": 66705
+      },
+      "location": {
+        "country": "BR",
+        "altitude": "44.2",
+        "longitude": "-51.14076465368",
+        "exact_location": 1,
+        "indoor": 0,
+        "latitude": "-29.77755966300",
+        "id": 53615
+      },
+      "sampling_rate": null,
+      "id": 31079872215
+    }
+  },
+  "iqair": {
+    "api_endpoint": "https://api.airvisual.com/v2/nearest_city?lat=-20.3125&lon=-40.2870",
+    "api_http_status": 400,
+    "api_response": {
+      "status": "fail",
+      "data": {
+        "message": "incorrect_api_key"
+      }
+    },
+    "web_page": "https://www.iqair.com/air-quality/brazil/espirito-santo/vitoria",
+    "web_http_status": 200,
+    "web_findings": "Exibe apenas estimativa modelada com asterisco (53 * US AQI+, PM2.5 10.1 ug/m3) e afirma explicitamente em Where is the cleanest air quality in Vitoria?: No locations are available (0 estacoes fisicas na RMGV)."
+  },
+  "purpleair": {
+    "api_endpoint": "https://api.purpleair.com/v1/sensors?fields=name,latitude,longitude&nwlat=-20.0&nwlng=-40.6&selat=-20.5&selng=-40.1",
+    "api_http_status": 403,
+    "api_response": {
+      "api_version": "V1.2.3-1.1.45",
+      "error": "ApiKeyMissingError",
+      "description": "No API key was found in the request."
+    }
+  },
+  "municipais": {
+    "vitoria_geoweb": {
+      "endpoint": "https://geoweb.vitoria.es.gov.br/api/feed/dcat-us/1.1.json",
+      "http_status": 200,
+      "datasets_count": 21,
+      "air_quality_datasets": 0
+    },
+    "vitoria_transparencia": {
+      "endpoint": "https://wstransparencia.vitoria.es.gov.br/",
+      "http_status": 200,
+      "scope": "Apenas dados administrativo-financeiros (despesas, receitas, contratos, servidores)."
+    },
+    "vila_velha_transparencia": {
+      "endpoint": "https://transparencia.vilavelha.es.gov.br/DadosAbertos.Lista.aspx",
+      "http_status": 200,
+      "scope": "TransparenciaWeb 3.9.46.11 - apenas execucao orcamentaria, licitacoes, contratos, patrimonio e pessoal."
+    },
+    "serra_transparencia": {
+      "endpoint": "http://transparencia.serra.es.gov.br/",
+      "http_status": 200,
+      "scope": "TransparenciaWeb 3.9.45.11 - apenas despesas, receitas, contratos e licitacoes."
+    },
+    "cariacica_transparencia": {
+      "endpoint": "https://transparencia.cariacica.es.gov.br/",
+      "http_status": 200,
+      "scope": "TransparenciaWeb - apenas saude, educacao, contratos, despesas, receitas e obras."
+    }
+  }
+}
