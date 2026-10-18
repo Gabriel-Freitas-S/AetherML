@@ -20,6 +20,8 @@ Métricas gate: `R²≥0.65 (PM), ≥0.55 (O3/NO2)`, `MAE` por estação, `iqar_
 - Join `observed × prediction_logs` da semana → MAE_pm25/o3/no2, `iqar_accuracy`, `false_alarm_rate` (previu Ruim+, ficou Boa/Moderada), `missed_event_rate` (ficou Ruim+, previu abaixo), drift PSI/KS nas features.
 - Grava `weekly_evaluations`; se `drift=1` ou `missed>0.15`, abre `evaluation_report_md` + flag p/ retreino.
 - Fontes fotoquímicas H-II: treino O3 usa `no2_lag, radiação, temp, vento` (titulação + advecção); validação estratificada por quadrante de vento (NNE vs SSW).
+- **Estado da avaliação (BUG-05):** Entregues no artefato `model-eval.json` baselines de persistência (`lag1` e `lag24`) para todos os 5 alvos + IQAr, `skill_vs_persistence` e declaração de proveniência (`provenance`, CAMS regional ≠ medição in-situ).
+- **Próximo passo metodológico (MOS):** Com a disponibilização de medições físicas de estação (coluna `source`, migration `0002_observed_source.sql`, sentinela `IEMA`), transição do modelo para corretor de viés MOS (*Model Output Statistics*), onde $X$ = CAMS e $Y$ = ground truth *in-situ*.
 
 ## 3. Roadmap executável
 
@@ -32,6 +34,7 @@ Métricas gate: `R²≥0.65 (PM), ≥0.55 (O3/NO2)`, `MAE` por estação, `iqar_
 **H-II (3-6m) — Fotoquímica+mobilidade [dono: ML+ingestão]**
 - [ ] Modelos o3_8h/no2_1h + interpolação multipoluente
 - [ ] Ingestão tráfego contínuo (Terceira/Segunda/Cinco Pontes/Florentino Avidos)
+- [ ] Modelo MOS (CAMS = X, IEMA in-situ = Y) para correção de viés local
 - [ ] Aceite: picos NO2 Centro/Suá capturados; O3 vespertino interior
 
 **H-III (6-12m) — Orbital+simulação+push [dono: full]**
