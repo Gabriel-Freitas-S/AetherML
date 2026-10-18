@@ -37,17 +37,31 @@ ARTIFACT_CACHE_CONTROL = "public, max-age=31536000, immutable"
 MANIFEST_CACHE_CONTROL = "public, max-age=300"
 
 
-def _wrangler() -> str:
-    """Resolve o executavel do wrangler (npx.cmd no Windows) sem depender do shell."""
-    exe = shutil.which("npx")
-    if exe is None:
-        raise SystemExit("[AetherML ML] 'npx' nao encontrado no PATH.")
-    return exe
+def _wrangler() -> List[str]:
+    """Resolve o comando do wrangler sem depender do shell.
+
+    Ordem: binario v4 do PATH (o CI instala `wrangler@4` global no step de upload)
+    e, em ultimo caso, `npx -y wrangler@4` — o mesmo padrao do deploy em
+    .github/workflows/retrain.yml. O `npx wrangler` sem `-y`/versao falhou no runner
+    com "sh: 1: wrangler: not found" (run 39172584159: upload R2 abortou o pipeline).
+
+    NAO usamos o wrangler do workspace: `workers/*` pina `^3.78.0`, e o v3 nao aceita
+    `--remote` (flag v4-only que upload()/verify() passam; em v3 o remoto e default e
+    o flag quebra com "Unknown argument: remote"). Um v3 fora do PATH pinado deve
+    falhar alto e ser trocado por v4, nunca usado silenciosamente.
+    """
+    exe = shutil.which("wrangler")
+    if exe:
+        return [exe]
+    npx = shutil.which("npx")
+    if npx is None:
+        raise SystemExit("[AetherML ML] 'npx'/'wrangler' nao encontrados no PATH.")
+    return [npx, "-y", "wrangler@4"]
 
 
 def _run(args: List[str]) -> None:
     result = subprocess.run(
-        [_wrangler(), "wrangler", *args],
+        [*_wrangler(), *args],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
