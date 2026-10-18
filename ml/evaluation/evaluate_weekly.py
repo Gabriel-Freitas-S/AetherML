@@ -810,6 +810,30 @@ def run_weekly_evaluation(
     return summary
 
 
+def derive_promoted_targets(registry: Dict[str, Any], challenger_version: str) -> List[str]:
+    """Deriva os poluentes promovidos nesta execução a partir do registry.
+
+    Schema vigente (`ml/training/registry.py::update_registry_paired`): o artefato
+    ativo de cada poluente registra a versão de origem em `models.<target>.version`.
+    Um alvo é considerado promovido quando essa versão é a do challenger desta execução.
+    Ordem determinística: `targets` canônico do registry primeiro; chaves extras de
+    `models` em seguida.
+    """
+    models = registry.get("models")
+    if not isinstance(models, dict):
+        return []
+    targets = registry.get("targets")
+    if not isinstance(targets, list):
+        targets = []
+    ordered: List[str] = [t for t in targets if isinstance(t, str)]
+    ordered += [t for t in models.keys() if t not in ordered]
+    return [
+        t
+        for t in ordered
+        if isinstance(models.get(t), dict) and models[t].get("version") == challenger_version
+    ]
+
+
 def run_retrain_pipeline(
     source: str = "d1",
     version: Optional[str] = None,
@@ -874,10 +898,7 @@ def run_retrain_pipeline(
 
     after_reg = load_registry("models/registry.json")
     active_version = after_reg.get("active_version") or prev_active or challenger_version
-    active_by_target = after_reg.get("active_by_target") or {}
-    promoted_targets = [
-        t for t, v in active_by_target.items() if v == challenger_version
-    ]
+    promoted_targets = derive_promoted_targets(after_reg, challenger_version)
     any_promoted = bool(len(promoted_targets) > 0) and (not dry_run)
 
     summary = {
