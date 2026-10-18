@@ -50,3 +50,33 @@ O poluente associado ao maior valor é o **Poluente Crítico Primário**.
   - *Alerta Proativo*: Grupos de risco devem evitar atividades físicas intensas ao ar livre. População geral pode apresentar leve irritação nos olhos e garganta.
 - **Faixa Muito Ruim (121 a 200) e Péssima (> 200)**:
   - *Alerta Sanitário Crítico*: Toda a população deve reduzir drasticamente atividades externas, manter ambientes fechados e ventilados com filtros de ar e evitar a exposição em horários de pico.
+
+---
+
+## 5. Médias Móveis Regulatórias vs. Estimativa Horária Pontual
+
+A Resolução CONAMA 491/2018 estipula que as concentrações de referência não são valores instantâneos isolados, mas médias temporais móveis padronizadas:
+
+- **24 horas móveis**: $PM_{2.5}$, $PM_{10}$, $SO_2$
+- **8 horas móveis**: $O_3$ (e $CO$)
+- **1 hora**: $NO_2$
+
+### 5.1 Implementação Canônica (`@aetherml/core-iqar`)
+
+O pacote `@aetherml/core-iqar` fornece as funções canônicas para o cálculo regulatório estrito:
+
+- `REGULATORY_WINDOWS`: dicionário de janelas temporais regulamentares (`pm25: 24`, `pm10: 24`, `so2: 24`, `o3: 8`, `no2: 1`).
+- `calculateRegulatoryMovingAverage(series, windowHours)`: calcula a média móvel estrita sobre série horária contígua e válida. Se a série contiver menos horas do que a janela regulatória ou apresentar lacunas temporais, retorna `null` para evitar subestimação ou cálculo espúrio.
+- `calculatePollutantMovingAverages(hourlySeries)`: computa a média móvel regulatória para cada poluente suportado.
+- `calculateRegulatoryIQAr(hourlySeries)`: avalia o IQAr regulatório a partir das concentrações médias móveis e determina o poluente crítico.
+
+### 5.2 Estimativa Horária Pontual na Interface
+
+Quando um bundle de inferência futura é carregado sem a série observada contígua das 24 horas antecedentes, a interface do usuário exibe uma **estimativa a partir de valores horários do modelo**, com aviso explícito de transparência metodológica:
+> *"Estimativa a partir de valores horários do modelo; a CONAMA 491 exige médias móveis (24h/8h)"*
+
+Essa diferenciação protege a integridade científica da plataforma, diferenciando medições regulamentares de previsões pontuais horárias de Machine Learning.
+
+### 5.3 Próxima Etapa de Integração
+
+A evolução planejada para o pipeline de dados consiste em injetar a série histórica recente observada (via banco D1 / rede RAMQAr ou fallback Open-Meteo com `past_days=1`) diretamente no bundle de previsão, permitindo que as funções de média móvel de `@aetherml/core-iqar` calculem o IQAr estritamente regulatório desde a primeira hora do horizonte previsto.

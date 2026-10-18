@@ -1,10 +1,9 @@
 // apps/web/src/lib/provenance.ts — fonte única da verdade sobre DE ONDE VEIO o número
 // que o painel está exibindo.
 //
-// Três perguntas, uma tira: origem, horário do dado mais recente, idade. Mais um
-// estado que a idade sozinha não cobre: uma série totalmente no FUTURO não é velha,
-// mas também não tem "hora atual" — e é a série que o `currentPoint` sinaliza com
-// `isFallback`.
+// Três perguntas, uma tira: origem, horário do dado mais recente, idade.
+// Com dados frescos, uma série de previsão estende-se no futuro (now+1h .. now+120h).
+// Essa série é PREVISÃO NORMAL (não erro, não histórico).
 //
 // Regra do projeto: "é obrigatório usar ML". Qualquer série que não seja saída do
 // modelo tem de se declarar na tela, então uma origem desconhecida NUNCA é
@@ -12,9 +11,11 @@
 //
 // Sem DOM e sem Svelte: `node --test` roda este arquivo direto.
 
-// Extensão explícita: este arquivo é importado por `node --test`, e o resolver
-// ESM do Node não completa `./forecast-days` sem o `.ts` (o Vite completa).
-import { formatStaleNotice } from "./forecast-days.ts";
+import {
+	formatForecastStart,
+	formatObservedAt,
+	formatStaleNotice,
+} from "./forecast-days.ts";
 import type { DataAge } from "./forecast-days.ts";
 
 /**
@@ -38,35 +39,38 @@ export interface OriginInfo {
 	isMl: boolean;
 }
 
-const ORIGINS: Record<DataOrigin, OriginInfo> = {
-	ml: {
-		id: "ml",
-		label: "Modelo LightGBM (previsão)",
-		detail:
-			"Concentrações previstas pelo modelo do projeto. Não são medições de sensor.",
-		isMl: true,
-	},
-	"open-meteo": {
-		id: "open-meteo",
-		label: "Open-Meteo (fallback)",
-		detail:
-			"Série da API pública em uso porque o bundle do modelo estava vencido. Não é saída do LightGBM.",
-		isMl: false,
-	},
-	unknown: {
+/** Descreve a origem. Quando stale, ajusta o texto para declarar histórico do modelo, nunca previsão. */
+export function describeOrigin(
+	origin: DataOrigin | null | undefined,
+	isStale = false,
+): OriginInfo {
+	if (origin === "ml") {
+		return {
+			id: "ml",
+			label: isStale
+				? "Modelo LightGBM (histórico)"
+				: "Modelo LightGBM (previsão)",
+			detail: isStale
+				? "Histórico do modelo do projeto. Não são medições de sensor."
+				: "Concentrações previstas pelo modelo do projeto. Não são medições de sensor.",
+			isMl: true,
+		};
+	}
+	if (origin === "open-meteo") {
+		return {
+			id: "open-meteo",
+			label: "Open-Meteo (fallback)",
+			detail:
+				"Série da API pública em uso porque o bundle do modelo estava vencido. Não é saída do LightGBM.",
+			isMl: false,
+		};
+	}
+	return {
 		id: "unknown",
 		label: "Origem desconhecida",
 		detail: "Não foi possível identificar a origem desta série.",
 		isMl: false,
-	},
-};
-
-/** Descreve a origem. Qualquer valor fora do domínio cai em `unknown`, nunca em `ml`. */
-export function describeOrigin(
-	origin: DataOrigin | null | undefined,
-): OriginInfo {
-	if (origin && origin in ORIGINS) return ORIGINS[origin];
-	return ORIGINS.unknown;
+	};
 }
 
 /**
@@ -74,8 +78,7 @@ export function describeOrigin(
  *
  * - `live`: existe hora atual (algum ponto `<= now`) e existe previsão à frente.
  * - `stale`: NENHUM ponto no futuro — o que resta é histórico.
- * - `ahead`: NENHUM ponto `<= now` — a série inteira está no futuro, logo não há
- *   valor "atual" para exibir. É o que `currentPoint` marca como `isFallback`.
+ * - `ahead`: NENHUM ponto `<= now` — a série inteira está no futuro (previsão normal).
  */
 export type Freshness = "live" | "stale" | "ahead";
 
@@ -100,7 +103,13 @@ export interface ProvenanceInput {
 	/** Verdadeiro quando a série não tem nenhum ponto no futuro. */
 	isStale: boolean;
 	/** Verdadeiro quando `currentPoint` caiu no ponto mais antigo (série no futuro). */
-	isFallback: boolean;
+	isFallback?: boolean;
+	/** Ponto inicial ou de referência da previsão. */
+	startTimestamp?: string | null;
+	referenceTimestamp?: string | null;
+	/** Fim da série (horizonte final de previsão). */
+	horizonTimestamp?: string | null;
+	now?: Date;
 }
 
 export interface Provenance {
@@ -109,8 +118,8 @@ export interface Provenance {
 	/** Frase de abertura da tira. */
 	headline: string;
 	/**
-	 * `"alert"` só quando a atualidade é questionável (stale/ahead), preservando o
-	 * tratamento âmbar já existente. Série em dia não ocupa região viva.
+	 * `"alert"` só quando a atualidade é questionável (stale) ou origem externa (open-meteo/unknown).
+	 * Série em dia (live ou ahead) não ocupa região viva.
 	 */
 	role: "alert" | null;
 	isAlert: boolean;
@@ -122,13 +131,16 @@ export interface Provenance {
 	warnings: string[];
 }
 
-const DASH = "—";
+export const DASH = "—";
 
 export function buildProvenance(input: ProvenanceInput): Provenance {
-	const origin = describeOrigin(input.origin);
+	const origin = describeOrigin(input.origin, input.isStale);
 	const { age } = input;
-	const freshness = freshnessOf(input.isStale, input.isFallback);
-	const isAlert = freshness !== "live";
+	const freshness = freshnessOf(input.isStale, input.isFallback ?? false);
+
+	// Regra do produto: série no futuro é previsão normal do modelo, NÃO erro!
+	// Alert apenas quando stale (dados velhos) ou quando a origem não é ML.
+	const isAlert = freshness === "stale" || !origin.isMl;
 
 	const warnings: string[] = [];
 	if (!origin.isMl) {
@@ -141,18 +153,36 @@ export function buildProvenance(input: ProvenanceInput): Provenance {
 		// estação, então o texto não pode divergir entre telas.
 		warnings.push(formatStaleNotice(age).body);
 	}
-	if (freshness === "ahead") {
-		warnings.push(
-			`Não há hora atual na série (ela começa em ${age.observedAt ?? DASH}): o IQAr no topo é a primeira hora disponível, não o valor de agora.`,
-		);
-	}
 
 	const headline =
-		freshness === "stale"
-			? formatStaleNotice(age).title
-			: freshness === "ahead"
-				? "Série ainda no futuro"
-				: "Dados em dia";
+		freshness === "stale" ? formatStaleNotice(age).title : "Dados em dia";
+
+	const now = input.now ?? new Date();
+	const startTs = input.startTimestamp ?? input.referenceTimestamp;
+	const horizonTs = input.horizonTimestamp;
+
+	let rows: ProvenanceRow[];
+	if (!input.isStale && (startTs || horizonTs)) {
+		rows = [
+			{ label: "Origem", value: origin.label },
+			{
+				label: "Início da previsão",
+				value: startTs
+					? formatForecastStart(startTs, now)
+					: (age.observedAt ?? DASH),
+			},
+			{
+				label: "Horizonte até",
+				value: horizonTs ? formatObservedAt(horizonTs) : DASH,
+			},
+		];
+	} else {
+		rows = [
+			{ label: "Origem", value: origin.label },
+			{ label: "Mais recente", value: age.observedAt ?? DASH },
+			{ label: "Idade", value: age.ageText || DASH },
+		];
+	}
 
 	return {
 		origin,
@@ -160,12 +190,27 @@ export function buildProvenance(input: ProvenanceInput): Provenance {
 		headline,
 		role: isAlert ? "alert" : null,
 		isAlert,
-		tone: isAlert || !origin.isMl ? "amber" : "neutral",
-		rows: [
-			{ label: "Origem", value: origin.label },
-			{ label: "Mais recente", value: age.observedAt ?? DASH },
-			{ label: "Idade", value: age.ageText || DASH },
-		],
+		tone: isAlert ? "amber" : "neutral",
+		rows,
 		warnings,
 	};
+}
+
+/** Redação única para o texto de abertura do Dashboard (evita contradição de legendas). */
+export function getLeadLine(opts: {
+	freshness: Freshness;
+	stationName: string;
+	pointsCount: number;
+	observedAt?: string | null;
+	ageText?: string | null;
+	origin?: DataOrigin | null;
+}): string {
+	const when = opts.observedAt ?? DASH;
+	if (opts.freshness === "stale") {
+		return `A série desta estação termina em ${when} (${opts.ageText ?? ""}). As horas abaixo são histórico do modelo, não previsão.`;
+	}
+	if (opts.origin === "open-meteo") {
+		return `Série da API pública Open-Meteo para as próximas ${opts.pointsCount} h em ${opts.stationName}. Não é saída do modelo LightGBM do projeto.`;
+	}
+	return `Previsão horária contínua do modelo para as próximas ${opts.pointsCount} h em ${opts.stationName}, classificada segundo as diretrizes de saúde da Resolução CONAMA 491/2018.`;
 }

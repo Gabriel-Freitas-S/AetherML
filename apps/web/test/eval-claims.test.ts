@@ -24,6 +24,7 @@ import {
 	holdoutHoursClaim,
 	holdoutSpanClaim,
 	modelCountClaim,
+	pm25R2Diagnosis,
 	rolloutClaim,
 	rolloutHours,
 } from "../src/lib/eval-claims.ts";
@@ -162,4 +163,30 @@ test("formatClassAccuracy mantém o formato de tela e troca 0 por travessão", (
 	assert.equal(formatClassAccuracy(null), DASH);
 	assert.equal(formatClassAccuracy(undefined), DASH);
 	assert.notEqual(formatClassAccuracy(null), "0.0%");
+});
+
+test("pm25R2Diagnosis: condicional ao limiar de 0.75 e coerente com a badge (BUG-10)", () => {
+	// Acima do limiar: texto positivo/neutro, nunca 'baixo'
+	const highDiag = pm25R2Diagnosis(0.9377);
+	assert.ok(highDiag !== null);
+	assert.ok(
+		!highDiag.includes("baixo"),
+		"R² 0.9377 não pode ser classificado como baixo",
+	);
+	assert.ok(highDiag.includes("0.9377"));
+
+	// No limiar exato (0.75): positivo/neutro
+	const edgeDiag = pm25R2Diagnosis(0.75);
+	assert.ok(edgeDiag !== null);
+	assert.ok(!edgeDiag.includes("baixo"));
+
+	// Abaixo do limiar (< 0.75): alerta de R² baixo
+	const lowDiag = pm25R2Diagnosis(0.74);
+	assert.ok(lowDiag !== null);
+	assert.ok(lowDiag.includes("baixo"));
+	assert.ok(lowDiag.includes("0.74"));
+
+	// R² nulo ou inválido devolve null
+	assert.equal(pm25R2Diagnosis(null), null);
+	assert.equal(pm25R2Diagnosis(undefined), null);
 });

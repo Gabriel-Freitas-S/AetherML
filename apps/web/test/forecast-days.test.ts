@@ -129,6 +129,30 @@ test("buildFiveDayCards: série com pontos futuros não é marcada como desatual
 	);
 });
 
+test("buildFiveDayCards: classificação do cartão diário vem do PICO horário (BUG-12)", () => {
+	// 24 horas dentro do mesmo dia local em America/Sao_Paulo (03:00Z a 02:00Z do dia seguinte)
+	const startMs = Date.parse("2026-10-14T03:00:00Z");
+	const points: FakePoint[] = Array.from({ length: 24 }, (_, i) => ({
+		timestamp: new Date(startMs + i * 3600000).toISOString(),
+		iqar: i === 12 ? 67 : 20,
+		classification: i === 12 ? "Moderada" : "Boa",
+		primary: i === 12 ? "o3" : "pm25",
+	}));
+
+	const { cards } = buildFiveDayCards(points, {
+		now: new Date("2026-10-14T12:00:00Z"),
+	});
+	assert.equal(cards.length, 1);
+	assert.equal(cards[0].avgIqar, 22, "média é exibida como número rotulado");
+	assert.equal(cards[0].maxIqar, 67, "pico horário é 67");
+	assert.equal(cards[0].primary, "O3", "poluente crítico do pico");
+	assert.equal(
+		cards[0].classification,
+		"Moderada",
+		"a classificação deve refletir o pior índice horário (pico 67 = Moderada), não a média (22 = Boa)",
+	);
+});
+
 // Defeito 2: `lastUpdated` era o horário do fetch, não a idade do dado.
 test("describeDataAge: deriva a idade do timestamp do dado, não do momento do fetch", () => {
 	const age = describeDataAge("2026-10-02T06:00:00Z", AFTER_SERIES_END);
@@ -240,4 +264,31 @@ test("formatAxisTickLabel: separa com espaço inseparável, que o SVG não colap
 	const other = formatAxisTickLabel("2026-09-28T07:00:00Z", false);
 	assert.ok(other.includes(NBSP));
 	assert.doesNotMatch(other, / /);
+});
+
+test("buildFiveDayCards: separa referência atual da série do horizonte final (BUG-07)", () => {
+	// Série com 120 horas no futuro: de now+1h até now+120h
+	const now = new Date("2026-10-18T12:00:00Z");
+	const startFuture = new Date("2026-10-18T13:00:00Z");
+	const series = hourlySeries(startFuture.toISOString(), 120);
+
+	const res = buildFiveDayCards(series, { now });
+
+	// Referência atual: primeiro ponto da série no futuro (now+1h)
+	assert.equal(res.referenceTimestamp, "2026-10-18T13:00:00.000Z");
+	// Horizonte: último ponto da série (fim das 120 horas)
+	assert.equal(
+		res.horizonTimestamp,
+		new Date(startFuture.getTime() + 119 * 3600000).toISOString(),
+	);
+
+	// A idade derivada da referência atual NUNCA pode ser "em 4 dias" ou "em 5 dias"
+	const age = describeDataAge(res.referenceTimestamp, now);
+	assert.equal(
+		age.ageText,
+		"em 1 h",
+		"idade coerente com o início da previsão, não o horizonte",
+	);
+	assert.notEqual(age.ageText, "em 4 dias");
+	assert.notEqual(age.ageText, "em 5 dias");
 });

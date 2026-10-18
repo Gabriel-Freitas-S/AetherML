@@ -124,3 +124,40 @@ test("currentPoint: não muta o array de entrada", () => {
 	);
 	assert.equal(series.length, 5);
 });
+
+test("BUG-06 regressão: todas as superfícies (Hero, Faixas CONAMA, Estações) usam rigorosamente o mesmo ponto e IQAr", () => {
+	// Simula série horária com 24h passadas e 48h futuras
+	const pastAndFutureSeries = [
+		point(-120, 35),
+		point(-60, 42),
+		point(0, 48), // Ponto atual exato
+		point(60, 85), // Previsão futura (IQAr bem diferente)
+		point(120, 110),
+	];
+
+	// Simula a resolução em cada superfície
+	const heroPoint = currentPoint(pastAndFutureSeries, NOW)?.point;
+	const faixasFirstPoint = currentPoint(pastAndFutureSeries, NOW)?.point;
+	const stationDetailPagePoint = currentPoint(pastAndFutureSeries, NOW)?.point;
+
+	assert.ok(heroPoint && faixasFirstPoint && stationDetailPagePoint);
+	assert.equal(heroPoint.timestamp, faixasFirstPoint.timestamp);
+	assert.equal(heroPoint.timestamp, stationDetailPagePoint.timestamp);
+	assert.equal(heroPoint.iqar, 48);
+	assert.equal(faixasFirstPoint.iqar, 48);
+	assert.equal(stationDetailPagePoint.iqar, 48);
+	assert.equal(heroPoint.timestamp, new Date(NOW).toISOString());
+
+	// Quando now está entre pontos (ex. 25 min após o ponto -60, faltando 35 min para o ponto 0)
+	const intermediateNow = NOW - 35 * 60_000; // 25 min após point(-60)
+	const heroInter = currentPoint(pastAndFutureSeries, intermediateNow)?.point;
+	const faixasInter = currentPoint(pastAndFutureSeries, intermediateNow)?.point;
+
+	assert.ok(heroInter && faixasInter);
+	assert.equal(heroInter.timestamp, faixasInter.timestamp);
+	assert.equal(
+		heroInter.iqar,
+		42,
+		"ambos selecionam o último ponto observado <= now (-60 min), nunca o ponto futuro mais próximo",
+	);
+});

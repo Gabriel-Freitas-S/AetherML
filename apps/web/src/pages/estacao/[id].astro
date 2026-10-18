@@ -57,9 +57,10 @@ const saabasExample = [
 const {
 	cards: fiveDaysForecast,
 	isStale,
+	referenceTimestamp,
 	newestTimestamp,
 } = buildFiveDayCards(points as any);
-const dataAge = describeDataAge(newestTimestamp);
+const dataAge = describeDataAge(referenceTimestamp);
 const staleNotice = formatStaleNotice(dataAge);
 
 function badgeClass(cls?: string): string {
@@ -149,6 +150,7 @@ function iqarIcon(cls?: string): string {
           <span>{currentPoint.classification}</span>
         </span>
         <div class="text-slate-500 text-[11px] mt-1">Crítico: {currentPoint.primary.toUpperCase()}</div>
+        <div class="text-slate-400 text-[9px] mt-0.5 uppercase tracking-wider font-semibold">Estimativa horária (CONAMA 491 exige médias móveis 24h/8h)</div>
       </div>
     </div>
   </div>

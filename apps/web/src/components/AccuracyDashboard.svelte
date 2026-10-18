@@ -10,6 +10,7 @@ import {
 	holdoutHoursClaim,
 	holdoutSpanClaim,
 	modelCountClaim,
+	pm25R2Diagnosis,
 	rolloutClaim,
 } from "../lib/eval-claims";
 import CompareChart from "./CompareChart.svelte";
@@ -246,7 +247,7 @@ function fmtDate(iso: string): string {
       vs baseline de persistência ("ontem = hoje") no PM2.5: MAE <strong class="font-mono text-slate-700">{data.persistence_baseline_pm25.mae}</strong>
       → modelo MAE <strong class="font-mono text-emerald-700">{data.metrics.pm25.mae}</strong>
       ({Math.round((1 - data.metrics.pm25.mae / data.persistence_baseline_pm25.mae) * 100)}% menos erro).
-      R² do PM2.5 ainda baixo ({data.metrics.pm25.r2}): o modelo acerta o nível médio, mas varia menos que o real — próximo ganho virá de dados de tráfego/satélite reais.
+      {pm25R2Diagnosis(data.metrics.pm25.r2)}
     </p>
   </section>
 

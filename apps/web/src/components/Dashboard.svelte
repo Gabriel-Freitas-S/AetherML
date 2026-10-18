@@ -24,7 +24,11 @@ import {
 	resolveActiveStation,
 	saveStationId,
 } from "../lib/location";
-import { type DataOrigin, buildProvenance } from "../lib/provenance";
+import {
+	type DataOrigin,
+	buildProvenance,
+	getLeadLine,
+} from "../lib/provenance";
 import ForecastChart from "./ForecastChart.svelte";
 
 import LocationBar from "./LocationBar.svelte";
@@ -131,7 +135,7 @@ const stationsList = $derived.by(() => {
 // ../lib/forecast-days — é a mesma cópia usada por estacao/[id].astro.
 const dayCards = $derived(buildFiveDayCards(points as any));
 const fiveDaysForecast = $derived(dayCards.cards);
-const dataAge = $derived(describeDataAge(dayCards.newestTimestamp));
+const dataAge = $derived(describeDataAge(dayCards.referenceTimestamp));
 
 // Quem produziu os números que estão em tela. `open-meteo` acontece porque
 // `fetchLiveOpenMeteoFallback` TROCA a série da estação pela API pública: sem esta
@@ -150,6 +154,9 @@ const provenance = $derived(
 		age: dataAge,
 		isStale: dayCards.isStale,
 		isFallback: currentPick?.isFallback ?? false,
+		startTimestamp: dayCards.referenceTimestamp,
+		referenceTimestamp: dayCards.referenceTimestamp,
+		horizonTimestamp: dayCards.horizonTimestamp,
 	}),
 );
 
@@ -169,18 +176,17 @@ const saabas = $derived.by(() => {
 
 const activeStation = $derived.by(() => stationWithFlags(activeId));
 
-// Uma linha de abertura que não pode mentir: quando a série está velha ou
-// inteiramente no futuro, "previsão para os próximos 5 dias" seria falso.
-const leadLine = $derived.by(() => {
-	const when = dataAge.observedAt ?? "—";
-	if (provenance.freshness === "stale") {
-		return `A série desta estação termina em ${when} (${dataAge.ageText}). As horas abaixo são histórico do modelo, não previsão.`;
-	}
-	if (provenance.freshness === "ahead") {
-		return `A série disponível começa em ${when}, ainda no futuro. Não há hora atual para exibir — o IQAr acima é a primeira hora da série.`;
-	}
-	return `Previsão horária contínua do modelo para as próximas ${points.length} h em ${activeStation.name}, classificada segundo as diretrizes de saúde da Resolução CONAMA 491/2018.`;
-});
+// Linha de abertura unificada: coerente com o estado do modelo e proveniência.
+const leadLine = $derived(
+	getLeadLine({
+		freshness: provenance.freshness,
+		stationName: activeStation.name,
+		pointsCount: points.length,
+		observedAt: dataAge.observedAt,
+		ageText: dataAge.ageText,
+		origin: activeOrigin,
+	}),
+);
 
 function applyStation(
 	id: string,
@@ -416,7 +422,7 @@ onMount(() => {
             <span class="opacity-60">&bull;</span>
             <span>{formatPollutantName(currentPoint.primary)}</span>
           </div>
-          <p class="mt-1 text-[10px] uppercase font-bold tracking-wider text-slate-400">Valor de uma hora, não média</p>
+          <p class="mt-1 text-[10px] uppercase font-bold tracking-wider text-slate-400">Estimativa a partir de valores horários do modelo; a CONAMA 491 exige médias móveis (24h/8h)</p>
           <div class="mt-3 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-left text-xs text-slate-700 leading-snug w-full">
             <span class="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Recomendação de Saúde:</span>
             {iqarAdvice(currentPoint.classification)}
@@ -531,7 +537,7 @@ onMount(() => {
       <span class="text-xs text-slate-500">{dayCards.isStale ? "Sem previsão à frente" : "120 horas contínuas (Resolução CONAMA 491)"}</span>
     </div>
     <p class="mb-3 text-xs text-slate-500">
-      Cada cartão mostra duas estatísticas diferentes: a <strong class="text-slate-700">média do IQAr no dia</strong> (figura grande, e é dela que vem a faixa) e o <strong class="text-slate-700">pico horário</strong> do mesmo dia (anotação menor, no rodapé).
+      Cada cartão mostra a <strong class="text-slate-700">média do IQAr no dia</strong> (figura grande) e o <strong class="text-slate-700">pico horário</strong> (faixa do dia = pior hora, conforme diretriz de saúde pública). Estimativa a partir de valores horários do modelo; a CONAMA 491 exige médias móveis (24h/8h).
     </p>
     <div class="flex sm:grid sm:grid-cols-3 lg:grid-cols-5 gap-3.5 overflow-x-auto pb-2 snap-x snap-mandatory">
       {#each fiveDaysForecast as day}
