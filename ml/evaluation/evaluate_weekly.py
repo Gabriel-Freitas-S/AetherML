@@ -243,12 +243,14 @@ def supplement_d1_with_history(
         if not meteo_times or len(meteo_times) < len(aq_m.get("time", [])):
             continue
 
+        raw_so2 = raw_aq.get("sulphur_dioxide") or raw_aq.get("sulfur_dioxide") or [None] * len(meteo_times)
         full_aq = {
             "time": list(raw_aq.get("time", meteo_times)),
             "pm2_5": list(raw_aq.get("pm2_5", [None] * len(meteo_times))),
             "pm10": list(raw_aq.get("pm10", [None] * len(meteo_times))),
             "nitrogen_dioxide": list(raw_aq.get("nitrogen_dioxide", [None] * len(meteo_times))),
-            "sulfur_dioxide": list(raw_aq.get("sulfur_dioxide", [None] * len(meteo_times))),
+            "sulphur_dioxide": list(raw_so2),
+            "sulfur_dioxide": list(raw_so2),
             "ozone": list(raw_aq.get("ozone", [None] * len(meteo_times))),
             "carbon_monoxide": list(raw_aq.get("carbon_monoxide", [None] * len(meteo_times))),
         }
@@ -267,9 +269,11 @@ def supplement_d1_with_history(
                 if obs.get("no2") is not None:
                     full_aq["nitrogen_dioxide"][idx] = obs.get("no2")
                 if obs.get("so2") is not None:
+                    full_aq["sulphur_dioxide"][idx] = obs.get("so2")
                     full_aq["sulfur_dioxide"][idx] = obs.get("so2")
                 if obs.get("co") is not None:
                     full_aq["carbon_monoxide"][idx] = obs.get("co")
+
 
         if overlaid > 0:
             supplemented_counts[station_id] = overlaid
@@ -320,13 +324,15 @@ def install_d1_retrain_compat() -> None:
         source_mode: str = "d1",
         local_raw_path: str = "ml/data/openmeteo_raw.json",
         d1_file: str = "ml/data/d1_observed.json",
-        fetcher: Optional[Callable[[], Dict[str, Any]]] = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> Tuple[str, Dict[str, Any]]:
         resolved_source, merged = orig_resolve(
             source_mode=source_mode,
             local_raw_path=local_raw_path,
             d1_file=d1_file,
-            fetcher=fetcher,
+            *args,
+            **kwargs,
         )
         if resolved_source == "d1" and os.path.exists(local_raw_path) and os.path.exists(d1_file):
             try:
@@ -341,6 +347,7 @@ def install_d1_retrain_compat() -> None:
 
     f_mod.resolve_training_data = _wrapped_resolve
     setattr(f_mod, "_weekly_compat_installed", True)
+
 
 
 def persist_weekly_evaluations_to_d1(

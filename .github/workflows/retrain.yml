@@ -26,7 +26,7 @@ on:
       dry_run:
         description: "Executar em modo dry-run (sem promover nem publicar)"
         required: false
-        default: false
+        default: true
         type: boolean
       version:
         description: "Versão do Challenger (vazio = vAAAA.SS.N automático)"
@@ -108,7 +108,7 @@ jobs:
         run: |
           SOURCE_MODE="${{ inputs.source || 'd1' }}"
           PERSIST_FLAG=""
-          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ inputs.dry_run }}" != "true" ]; then
+          if [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" = "schedule" -o "${{ inputs.dry_run }}" = "false" ]; then
             PERSIST_FLAG="--persist-d1"
           fi
           python3 ml/evaluation/evaluate_weekly.py \
@@ -127,7 +127,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           D1_DATABASE_ID: ${{ vars.D1_DATABASE_ID || '55d25065-ebc2-47a4-9fc3-16bbb96ef4ac' }}
-          OMP_NUM_THREADS: "4"
+          OMP_NUM_THREADS: "2"
         run: |
           SOURCE_MODE="${{ inputs.source || 'd1' }}"
           EPSILON="${{ inputs.epsilon || '0.0' }}"
@@ -136,8 +136,11 @@ jobs:
             VERSION_ARG="--version ${{ inputs.version }}"
           fi
           DRY_RUN_FLAG=""
-          if [ "${{ inputs.dry_run }}" = "true" ] || [ "${{ github.ref }}" != "refs/heads/main" ]; then
-            echo "::notice::Executando em modo seguro (--dry-run) pois ref=${{ github.ref }} ou dry_run=true."
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "::notice::Executando em modo seguro (--dry-run) pois ref=${{ github.ref }} != refs/heads/main."
+            DRY_RUN_FLAG="--dry-run"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.dry_run }}" != "false" ]; then
+            echo "::notice::Executando workflow_dispatch em modo seguro (--dry-run default). Passe -f dry_run=false para promover."
             DRY_RUN_FLAG="--dry-run"
           fi
           # Executa python3 ml/training/retrain_real.py via bridge semanal (D1 168h + GITHUB_OUTPUT)
@@ -148,6 +151,7 @@ jobs:
             --summary-out ml/data/retrain_summary.json \
             $VERSION_ARG \
             $DRY_RUN_FLAG
+
 
 
       - name: Upload promoted ONNX models and manifest to Cloudflare R2
