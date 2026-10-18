@@ -50,8 +50,8 @@ O endpoint `/ingest` aceita **exclusivamente** método `POST`:
   ```
 
 #### Autenticação Opcional (`INGEST_TOKEN`)
-- Se a secret/variável `env.INGEST_TOKEN` **não estiver configurada**, o endpoint mantém o comportamento aberto atual.
-- Se `env.INGEST_TOKEN` **estiver configurada**, toda requisição `POST /ingest` deve enviar o header `X-Ingest-Token: <valor>` correspondente (caso contrário, responde `401 Unauthorized` sem tocar no D1).
+- Se a secret/variável `env.INGEST_TOKEN` **não estiver definida** (`undefined`), o endpoint mantém o comportamento aberto atual.
+- Se `env.INGEST_TOKEN` **estiver definida** (`!== undefined`), opera em modo **fail-closed**: exige que toda requisição `POST /ingest` envie o header `X-Ingest-Token: <valor>` idêntico ao secret não vazio; caso o secret tenha sido configurado vazio (`""`) ou o header esteja ausente/incorreto, responde `401 Unauthorized` sem tocar no D1.
 - **Rollout do secret (opcional, decidido no deploy)**:
   ```bash
   npx wrangler secret put INGEST_TOKEN --config workers/ingestion/wrangler.jsonc
@@ -60,10 +60,10 @@ O endpoint `/ingest` aceita **exclusivamente** método `POST`:
   ```
 
 #### Semântica dos Status HTTP
-- `200 OK`: execução concluída com escrita no banco (`observedRows > 0`). **Atenção**: falhas parciais (`report.failed > 0`, quando algumas estações gravam e outras falham) também retornam `200 OK`; inspecione `failed` e `stations[].error` no JSON retornado.
+- `200 OK`: execução concluída (não é falha total — inclui `observedRows === 0` se a janela vier vazia sem erro upstream, bem como falhas parciais onde `report.failed > 0` mas ao menos uma estação não falhou; inspecione `failed` e `stations[].error` no JSON retornado).
 - `502 Bad Gateway`: falha total (`report.failed > 0 && report.observedRows === 0` — nenhuma linha gravada).
 - `400 Bad Request`: parâmetro `days` inválido (não inteiro, `<= 0` ou `> 30`).
-- `401 Unauthorized`: `env.INGEST_TOKEN` configurado no Worker e header `X-Ingest-Token` ausente ou incorreto.
+- `401 Unauthorized`: `env.INGEST_TOKEN` configurado no Worker (`!== undefined`, inclusive string vazia `""` por fail-closed) e header `X-Ingest-Token` ausente ou incorreto.
 - `405 Method Not Allowed`: método diferente de `POST` (inclui `Allow: POST`), sem tocar no D1.
 - `404 Not Found`: rota diferente de `/ingest`.
 
@@ -75,7 +75,7 @@ npm --prefix workers/ingestion test
 # Deploy manual do worker em produção
 npx wrangler deploy --config workers/ingestion/wrangler.jsonc
 ```
-O deploy contínuo também é automatizado via `.github/workflows/deploy-worker.yml` em pushes na `main` que alterem `workers/ingestion/**` (ou via `workflow_dispatch`).
+O deploy contínuo também é automatizado via `.github/workflows/deploy-worker.yml` em pushes na `main` que alterem `workers/ingestion/**` ou `packages/core-iqar/**` (ou via `workflow_dispatch`).
 
 ---
 

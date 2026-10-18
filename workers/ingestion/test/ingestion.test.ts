@@ -38,7 +38,11 @@ import { createSchema, localD1 } from "./d1-local.ts";
 const TS = "2026-10-01T14:00";
 const ANALYSIS_CUTOFF = "2026-10-02T00:00";
 const NOW = new Date("2026-10-02T13:30:00.000Z");
-const WINDOW_HOURS = ["2026-10-02T11:00", "2026-10-02T12:00", "2026-10-02T13:00"];
+const WINDOW_HOURS = [
+	"2026-10-02T11:00",
+	"2026-10-02T12:00",
+	"2026-10-02T13:00",
+];
 
 /** Série CAMS sintética com os valores crus que o Open-Meteo devolve. */
 function cams(overrides: Record<string, unknown> = {}) {
@@ -72,7 +76,10 @@ function meteo(overrides: Record<string, unknown> = {}) {
 /** Dublê de fetch que devolve o envelope do Open-Meteo com `hours` horas. */
 function fakeOpenMeteo(
 	hours: string[],
-	overrides: { aq?: Record<string, unknown>; met?: Record<string, unknown> } = {},
+	overrides: {
+		aq?: Record<string, unknown>;
+		met?: Record<string, unknown>;
+	} = {},
 ): typeof fetch {
 	const n = hours.length;
 	const fill = (v: number) => Array.from({ length: n }, () => v);
@@ -141,9 +148,17 @@ test("buildObservedUpsert: DO UPDATE cobre todo campo gravado, menos id", () => 
 		"primary_pollutant",
 		"source",
 	]) {
-		assert.match(update, new RegExp(`\\b${col} = excluded\\.${col}\\b`), `falta ${col}`);
+		assert.match(
+			update,
+			new RegExp(`\\b${col} = excluded\\.${col}\\b`),
+			`falta ${col}`,
+		);
 	}
-	assert.doesNotMatch(update, /\bid = excluded\.id\b/, "id é PK: a linha existente preserva");
+	assert.doesNotMatch(
+		update,
+		/\bid = excluded\.id\b/,
+		"id é PK: a linha existente preserva",
+	);
 });
 
 test("buildObservedUpsert: nunca escreve created_at (DEFAULT CURRENT_TIMESTAMP)", () => {
@@ -152,7 +167,10 @@ test("buildObservedUpsert: nunca escreve created_at (DEFAULT CURRENT_TIMESTAMP)"
 
 test("buildFeaturesUpsert: usa a UNIQUE de 3 colunas de environmental_features", () => {
 	const sql = buildFeaturesUpsert();
-	assert.match(sql, /ON CONFLICT\(station_id, timestamp, is_forecast\) DO UPDATE SET/);
+	assert.match(
+		sql,
+		/ON CONFLICT\(station_id, timestamp, is_forecast\) DO UPDATE SET/,
+	);
 	assert.match(sql, /is_forecast = excluded\.is_forecast/);
 	assert.match(sql, /source = excluded\.source/);
 });
@@ -282,16 +300,29 @@ test("observedRowFrom: hours do dia corrente são marcados como forecast CAMS", 
 	// Chamarforecast de reanálise seria a mesma mentira que chamar de IEMA.
 	assert.equal(CAMPS_FORECAST_SOURCE, "open-meteo-cams-forecast");
 	assert.equal(
-		observedRowFrom("ramqar_camburi", cams({ time: ["2026-10-02T09:00"] }), 0, ANALYSIS_CUTOFF)
-			.source,
+		observedRowFrom(
+			"ramqar_camburi",
+			cams({ time: ["2026-10-02T09:00"] }),
+			0,
+			ANALYSIS_CUTOFF,
+		).source,
 		CAMPS_FORECAST_SOURCE,
 	);
 });
 
 test("observedRowFrom: nenhuma fonte escrita é o sentinela IEMA nem NULL", () => {
 	for (const ts of ["2026-10-01T14:00", "2026-10-02T09:00"]) {
-		const { source } = observedRowFrom("s", cams({ time: [ts] }), 0, ANALYSIS_CUTOFF);
-		assert.notEqual(source, IEMA_SENTINEL, "IEMA é reservado p/ estação in-situ oficial");
+		const { source } = observedRowFrom(
+			"s",
+			cams({ time: [ts] }),
+			0,
+			ANALYSIS_CUTOFF,
+		);
+		assert.notEqual(
+			source,
+			IEMA_SENTINEL,
+			"IEMA é reservado p/ estação in-situ oficial",
+		);
 		assert.ok(source.startsWith("open-meteo-cams-"));
 	}
 });
@@ -309,7 +340,12 @@ test("observedRowFrom: valor ausente vira NULL, nunca zero nem chute", () => {
 });
 
 test("observedRowFrom: IQAr fica NULL quando falta qualquer um dos 5 poluentes", () => {
-	const row = observedRowFrom("ramqar_camburi", cams({ ozone: [null] }), 0, ANALYSIS_CUTOFF);
+	const row = observedRowFrom(
+		"ramqar_camburi",
+		cams({ ozone: [null] }),
+		0,
+		ANALYSIS_CUTOFF,
+	);
 	assert.equal(row.iqarIndex, null);
 	assert.equal(row.iqarClassification, null);
 	assert.equal(row.primaryPollutant, null);
@@ -323,7 +359,15 @@ test("observedRowFrom: a faixa gravada é sempre a do índice gravado", () => {
 		const row = observedRowFrom("s", cams({ ozone: [o3] }), 0, ANALYSIS_CUTOFF);
 		const i = row.iqarIndex as number;
 		const band =
-			i <= 40 ? "Boa" : i <= 80 ? "Moderada" : i <= 120 ? "Ruim" : i <= 200 ? "Muito Ruim" : "Péssima";
+			i <= 40
+				? "Boa"
+				: i <= 80
+					? "Moderada"
+					: i <= 120
+						? "Ruim"
+						: i <= 200
+							? "Muito Ruim"
+							: "Péssima";
 		assert.equal(row.iqarClassification, band, `o3=${o3} iqar=${i}`);
 	}
 });
@@ -374,7 +418,9 @@ test("ingest: grava uma linha por estação por hora, com source preenchida", as
 		);
 		assert.equal(report.stations.length, 9);
 		assert.deepEqual(
-			report.stations.filter((s) => !s.ok).map((s) => `${s.stationId}: ${s.error}`),
+			report.stations
+				.filter((s) => !s.ok)
+				.map((s) => `${s.stationId}: ${s.error}`),
 			[],
 		);
 
@@ -402,7 +448,10 @@ test("ingest: grava uma linha por estação por hora, com source preenchida", as
 test("ingest: popula environmental_features no mesmo recorte, com is_forecast=0", async () => {
 	const local = localD1(createSchema());
 	try {
-		await ingest({ DB: local.db }, { now: NOW, fetchImpl: fakeOpenMeteo(WINDOW_HOURS), ...SILENT });
+		await ingest(
+			{ DB: local.db },
+			{ now: NOW, fetchImpl: fakeOpenMeteo(WINDOW_HOURS), ...SILENT },
+		);
 		// `.first()` devolve a LINHA, não `{ results }` — é `.all()` que embrulha.
 		const featCount = await local.db
 			.prepare("SELECT COUNT(*) n FROM environmental_features")
@@ -431,7 +480,9 @@ test("ingest: as estações vêm do D1, não de uma lista hardcoded", async () =
 		);
 		assert.equal(report.stations.length, 6);
 		const { results } = await local.db
-			.prepare("SELECT DISTINCT station_id FROM observed_pollutants ORDER BY station_id")
+			.prepare(
+				"SELECT DISTINCT station_id FROM observed_pollutants ORDER BY station_id",
+			)
 			.all<{ station_id: string }>();
 		assert.equal(results.length, 6);
 		assert.ok(!results.some((r) => r.station_id === "ramqar_paul"));
@@ -443,7 +494,11 @@ test("ingest: as estações vêm do D1, não de uma lista hardcoded", async () =
 test("ingest: idempotente — 2 execuções na MESMA janela não duplicam nem falham", async () => {
 	const local = localD1(createSchema());
 	try {
-		const opts = { now: NOW, fetchImpl: fakeOpenMeteo(WINDOW_HOURS), ...SILENT };
+		const opts = {
+			now: NOW,
+			fetchImpl: fakeOpenMeteo(WINDOW_HOURS),
+			...SILENT,
+		};
 		await ingest({ DB: local.db }, opts);
 		const first = await local.db
 			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
@@ -479,7 +534,9 @@ test("ingest: re-execução ATUALIZA os valores no mesmo (station_id, timestamp)
 		await run(63);
 		await run(150);
 		const row = await local.db
-			.prepare("SELECT o3, iqar_index, primary_pollutant FROM observed_pollutants WHERE station_id=? AND timestamp=?")
+			.prepare(
+				"SELECT o3, iqar_index, primary_pollutant FROM observed_pollutants WHERE station_id=? AND timestamp=?",
+			)
 			.bind("ramqar_camburi", WINDOW_HOURS[0])
 			.first<Record<string, unknown>>();
 		assert.equal(row?.o3, 150);
@@ -505,11 +562,19 @@ test("ingest: hora fora da janela é ignorada — o cron não reescreve históri
 			"2026-10-02T14:00",
 			"2026-10-03T00:00",
 		];
-		await ingest({ DB: local.db }, { now: NOW, fetchImpl: fakeOpenMeteo(hours), ...SILENT });
+		await ingest(
+			{ DB: local.db },
+			{ now: NOW, fetchImpl: fakeOpenMeteo(hours), ...SILENT },
+		);
 		const { results } = await local.db
-			.prepare("SELECT DISTINCT timestamp FROM observed_pollutants ORDER BY timestamp")
+			.prepare(
+				"SELECT DISTINCT timestamp FROM observed_pollutants ORDER BY timestamp",
+			)
 			.all<{ timestamp: string }>();
-		assert.deepEqual(results.map((r) => r.timestamp), WINDOW_HOURS);
+		assert.deepEqual(
+			results.map((r) => r.timestamp),
+			WINDOW_HOURS,
+		);
 	} finally {
 		local.close();
 	}
@@ -529,22 +594,41 @@ test("ingest: falha de rede por estação é logada e isola as demais", async ()
 
 		const report = await ingest(
 			{ DB: local.db },
-			{ now: NOW, fetchImpl: failing, log: () => {}, logError: (m) => errors.push(m) },
+			{
+				now: NOW,
+				fetchImpl: failing,
+				log: () => {},
+				logError: (m) => errors.push(m),
+			},
 		);
 		const failed = report.stations.filter((s) => !s.ok);
 		assert.equal(failed.length, 1);
 		assert.equal(failed[0].stationId, "ramqar_cariacica");
-		assert.match(errors.join("\n"), /ramqar_cariacica/, "falha tem de ser visível");
-		assert.match(errors.join("\n"), /503/, "o status HTTP precisa aparecer no log");
+		assert.match(
+			errors.join("\n"),
+			/ramqar_cariacica/,
+			"falha tem de ser visível",
+		);
+		assert.match(
+			errors.join("\n"),
+			/503/,
+			"o status HTTP precisa aparecer no log",
+		);
 
 		const distinct = await local.db
 			.prepare("SELECT COUNT(DISTINCT station_id) n FROM observed_pollutants")
 			.first<{ n: number }>();
 		assert.equal(distinct?.n, 8, "as 8 estações boas gravaram");
 		const broken = await local.db
-			.prepare("SELECT COUNT(*) n FROM observed_pollutants WHERE station_id='ramqar_cariacica'")
+			.prepare(
+				"SELECT COUNT(*) n FROM observed_pollutants WHERE station_id='ramqar_cariacica'",
+			)
 			.first<{ n: number }>();
-		assert.equal(broken?.n, 0, "sem fallback fabricationado para a estação que falhou");
+		assert.equal(
+			broken?.n,
+			0,
+			"sem fallback fabricationado para a estação que falhou",
+		);
 	} finally {
 		local.close();
 	}
@@ -554,16 +638,31 @@ test("ingest: payload com shape inesperado é reprovado, não coercionado", asyn
 	const local = localD1(createSchema());
 	try {
 		const malformed = (async () =>
-			new Response(JSON.stringify({ hourly: { time: WINDOW_HOURS, pm2_5: "não sou lista" } }), {
-				status: 200,
-			})) as unknown as typeof fetch;
-		const report = await ingest({ DB: local.db }, { now: NOW, fetchImpl: malformed, ...SILENT });
-		assert.ok(report.stations.every((s) => !s.ok), "shape inválido tem de reprovar a estação");
+			new Response(
+				JSON.stringify({
+					hourly: { time: WINDOW_HOURS, pm2_5: "não sou lista" },
+				}),
+				{
+					status: 200,
+				},
+			)) as unknown as typeof fetch;
+		const report = await ingest(
+			{ DB: local.db },
+			{ now: NOW, fetchImpl: malformed, ...SILENT },
+		);
+		assert.ok(
+			report.stations.every((s) => !s.ok),
+			"shape inválido tem de reprovar a estação",
+		);
 		assert.match(report.stations[0].error ?? "", /pm2_5/);
 		const written = await local.db
 			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
 			.first<{ n: number }>();
-		assert.equal(written?.n, 0, "nada pode ser gravado a partir de payload inválido");
+		assert.equal(
+			written?.n,
+			0,
+			"nada pode ser gravado a partir de payload inválido",
+		);
 	} finally {
 		local.close();
 	}
@@ -576,12 +675,19 @@ test("ingest: falha do batch não deixa a estação pela metade", async () => {
 		sqlite.exec(
 			"CREATE TRIGGER boom BEFORE INSERT ON observed_pollutants BEGIN SELECT RAISE(ABORT, 'boom'); END;",
 		);
-		const report = await ingest({ DB: local.db }, { now: NOW, fetchImpl: fakeOpenMeteo(WINDOW_HOURS), ...SILENT });
+		const report = await ingest(
+			{ DB: local.db },
+			{ now: NOW, fetchImpl: fakeOpenMeteo(WINDOW_HOURS), ...SILENT },
+		);
 		assert.ok(report.stations.every((s) => !s.ok));
 		const partial = await local.db
 			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
 			.first<{ n: number }>();
-		assert.equal(partial?.n, 0, "batch atômico: ou entra a estação inteira, ou nada");
+		assert.equal(
+			partial?.n,
+			0,
+			"batch atômico: ou entra a estação inteira, ou nada",
+		);
 	} finally {
 		local.close();
 	}
@@ -593,7 +699,9 @@ function generateHours(endIso: string, count: number): string[] {
 	const endMs = Math.floor(new Date(endIso).getTime() / 3_600_000) * 3_600_000;
 	const out: string[] = [];
 	for (let i = count - 1; i >= 0; i--) {
-		out.push(`${new Date(endMs - i * 3_600_000).toISOString().slice(0, 13)}:00`);
+		out.push(
+			`${new Date(endMs - i * 3_600_000).toISOString().slice(0, 13)}:00`,
+		);
 	}
 	return out;
 }
@@ -607,7 +715,20 @@ test("parseBackfillDays: aceita null/ausente como modo horário padrão e inteir
 });
 
 test("parseBackfillDays: rejeita 0, negativos, >30, decimais, strings vazias e lixo", () => {
-	for (const bad of ["", " ", "0", "-1", "-7", "31", "90", "3.5", "7d", "abc", "NaN", "Infinity"]) {
+	for (const bad of [
+		"",
+		" ",
+		"0",
+		"-1",
+		"-7",
+		"31",
+		"90",
+		"3.5",
+		"7d",
+		"abc",
+		"NaN",
+		"Infinity",
+	]) {
 		const res = parseBackfillDays(bad);
 		assert.equal(res.ok, false, `deveria rejeitar days=${JSON.stringify(bad)}`);
 	}
@@ -672,7 +793,10 @@ test("ingest com days=7: busca past_days=7, recorta 168h, respeita 1 subrequest/
 		);
 
 		// Idempotência: rodar backfill de 7d novamente não duplica linhas
-		await ingest({ DB: local.db }, { now: NOW, days: 7, fetchImpl: spyFetch, ...SILENT });
+		await ingest(
+			{ DB: local.db },
+			{ now: NOW, days: 7, fetchImpl: spyFetch, ...SILENT },
+		);
 		const totalAfter = await local.db
 			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
 			.first<{ n: number }>();
@@ -687,7 +811,16 @@ test("ingest: rejeita days fora do intervalo 1..MAX_BACKFILL_DAYS", async () => 
 	try {
 		for (const bad of [0, -2, 31, 1.5, Number.NaN]) {
 			await assert.rejects(
-				() => ingest({ DB: local.db }, { now: NOW, days: bad, fetchImpl: fakeOpenMeteo(WINDOW_HOURS), ...SILENT }),
+				() =>
+					ingest(
+						{ DB: local.db },
+						{
+							now: NOW,
+							days: bad,
+							fetchImpl: fakeOpenMeteo(WINDOW_HOURS),
+							...SILENT,
+						},
+					),
 				/days/,
 			);
 		}
@@ -732,6 +865,20 @@ test("ingest com days=30 (teto MAX_BACKFILL_DAYS): busca past_days=30, recorta 7
 			.first<{ n: number }>();
 		assert.equal(obsCount?.n, 6480);
 		assert.equal(featCount?.n, 6480);
+
+		// Reexecução no teto (days=30): upsert idempotente mantém 6480 linhas nas duas tabelas
+		await ingest(
+			{ DB: local.db },
+			{ now: NOW, days: 30, fetchImpl: spyFetch, ...SILENT },
+		);
+		const obsAfterSecond = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
+			.first<{ n: number }>();
+		const featAfterSecond = await local.db
+			.prepare("SELECT COUNT(*) n FROM environmental_features")
+			.first<{ n: number }>();
+		assert.equal(obsAfterSecond?.n, 6480);
+		assert.equal(featAfterSecond?.n, 6480);
 	} finally {
 		local.close();
 	}
@@ -746,7 +893,9 @@ test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /in
 	try {
 		for (const q of ["days=0", "days=31", "days=-1", "days=abc", "days="]) {
 			const res = await worker.fetch(
-				new Request(`https://aetherml-ingestion.local/ingest?${q}`, { method: "POST" }),
+				new Request(`https://aetherml-ingestion.local/ingest?${q}`, {
+					method: "POST",
+				}),
 				{ DB: local.db },
 			);
 			assert.equal(res.status, 400, `esperava 400 para ?${q}`);
@@ -769,7 +918,9 @@ test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /in
 		console.error = () => {};
 
 		const okRes = await worker.fetch(
-			new Request("https://aetherml-ingestion.local/ingest?days=2", { method: "POST" }),
+			new Request("https://aetherml-ingestion.local/ingest?days=2", {
+				method: "POST",
+			}),
 			{ DB: local.db },
 		);
 		assert.equal(okRes.status, 200);
@@ -807,29 +958,43 @@ test("worker.fetch: GET e HEAD em /ingest devolvem 405 Method Not Allowed sem in
 
 		for (const method of ["GET", "HEAD", "PUT", "DELETE"]) {
 			const res = await worker.fetch(
-				new Request("https://aetherml-ingestion.local/ingest?days=7", { method }),
+				new Request("https://aetherml-ingestion.local/ingest?days=7", {
+					method,
+				}),
 				{ DB: local.db },
 			);
 			assert.equal(res.status, 405, `esperava 405 para ${method} /ingest`);
 			assert.equal(res.headers.get("allow"), "POST");
 		}
 
-		assert.equal(fetchCalls, 0, "método não-POST não pode disparar subrequests");
+		assert.equal(
+			fetchCalls,
+			0,
+			"método não-POST não pode disparar subrequests",
+		);
 		const obsCount = await local.db
 			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
 			.first<{ n: number }>();
 		const featCount = await local.db
 			.prepare("SELECT COUNT(*) n FROM environmental_features")
 			.first<{ n: number }>();
-		assert.equal(obsCount?.n, 0, "observed_pollutants deve permanecer intocado");
-		assert.equal(featCount?.n, 0, "environmental_features deve permanecer intocado");
+		assert.equal(
+			obsCount?.n,
+			0,
+			"observed_pollutants deve permanecer intocado",
+		);
+		assert.equal(
+			featCount?.n,
+			0,
+			"environmental_features deve permanecer intocado",
+		);
 	} finally {
 		globalThis.fetch = origFetch;
 		local.close();
 	}
 });
 
-test("worker.fetch: exige X-Ingest-Token (401) quando env.INGEST_TOKEN está configurado", async (t) => {
+test("worker.fetch: exige X-Ingest-Token (401) quando env.INGEST_TOKEN está configurado (inclusive vazio = fail-closed)", async (t) => {
 	t.mock.timers.enable({ apis: ["Date"], now: NOW });
 	const local = localD1(createSchema());
 	const origFetch = globalThis.fetch;
@@ -847,7 +1012,9 @@ test("worker.fetch: exige X-Ingest-Token (401) quando env.INGEST_TOKEN está con
 
 		// 1. Sem header X-Ingest-Token → 401
 		const missingRes = await worker.fetch(
-			new Request("https://aetherml-ingestion.local/ingest", { method: "POST" }),
+			new Request("https://aetherml-ingestion.local/ingest", {
+				method: "POST",
+			}),
 			{ DB: local.db, INGEST_TOKEN: "segredo-super-forte" },
 		);
 		assert.equal(missingRes.status, 401);
@@ -861,6 +1028,25 @@ test("worker.fetch: exige X-Ingest-Token (401) quando env.INGEST_TOKEN está con
 			{ DB: local.db, INGEST_TOKEN: "segredo-super-forte" },
 		);
 		assert.equal(wrongRes.status, 401);
+
+		// 3. INGEST_TOKEN configurado como string vazia ("") → fail-closed (401 mesmo com header vazio)
+		const emptySecretNoHeader = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest", {
+				method: "POST",
+			}),
+			{ DB: local.db, INGEST_TOKEN: "" },
+		);
+		assert.equal(emptySecretNoHeader.status, 401);
+
+		const emptySecretEmptyHeader = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest", {
+				method: "POST",
+				headers: { "X-Ingest-Token": "" },
+			}),
+			{ DB: local.db, INGEST_TOKEN: "" },
+		);
+		assert.equal(emptySecretEmptyHeader.status, 401);
+
 		assert.equal(fetchCalls, 0, "requisição 401 não pode disparar subrequests");
 
 		const obsBefore = await local.db
@@ -868,7 +1054,7 @@ test("worker.fetch: exige X-Ingest-Token (401) quando env.INGEST_TOKEN está con
 			.first<{ n: number }>();
 		assert.equal(obsBefore?.n, 0, "D1 intocado após 401");
 
-		// 3. Com header X-Ingest-Token correto → 200 e ingere normalmente
+		// 4. Com header X-Ingest-Token correto → 200 e ingere normalmente
 		const okRes = await worker.fetch(
 			new Request("https://aetherml-ingestion.local/ingest", {
 				method: "POST",
@@ -897,16 +1083,24 @@ test("worker.fetch: devolve 502 Bad Gateway quando todas as estações falham e 
 	const origErr = console.error;
 	try {
 		globalThis.fetch = (async () =>
-			new Response("open-meteo down", { status: 503 })) as unknown as typeof fetch;
+			new Response("open-meteo down", {
+				status: 503,
+			})) as unknown as typeof fetch;
 		console.log = () => {};
 		console.error = () => {};
 
 		const res = await worker.fetch(
-			new Request("https://aetherml-ingestion.local/ingest", { method: "POST" }),
+			new Request("https://aetherml-ingestion.local/ingest", {
+				method: "POST",
+			}),
 			{ DB: local.db },
 		);
 		assert.equal(res.status, 502);
-		const report = (await res.json()) as { failed: number; observedRows: number; featureRows: number };
+		const report = (await res.json()) as {
+			failed: number;
+			observedRows: number;
+			featureRows: number;
+		};
 		assert.equal(report.failed, 9);
 		assert.equal(report.observedRows, 0);
 		assert.equal(report.featureRows, 0);
@@ -922,5 +1116,3 @@ test("worker.fetch: devolve 502 Bad Gateway quando todas as estações falham e 
 		local.close();
 	}
 });
-
-

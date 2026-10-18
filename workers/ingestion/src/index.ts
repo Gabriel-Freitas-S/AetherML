@@ -29,9 +29,9 @@
 // por um specifier de pacote sem antes adicionar a dep exigiria copiar as
 // fórmulas. Ver "follow-up" no relatório.
 import {
+	type Pollutant,
 	classifyIndex,
 	globalIQAr,
-	type Pollutant,
 } from "../../../packages/core-iqar/src/iqar.ts";
 
 export interface Env {
@@ -162,7 +162,10 @@ export function dayStart(now: Date): string {
 }
 
 /** Janela inclusiva de `hours` horas terminando na hora cheia de `now`. */
-export function hourWindow(now: Date, hours: number): { from: string; to: string } {
+export function hourWindow(
+	now: Date,
+	hours: number,
+): { from: string; to: string } {
 	// Ancorar pelo instante absoluto, nunca por `Date.parse(hourFloor(...))`: uma
 	// string sem offset é interpretada como hora LOCAL pelo spec, o que deslocaria
 	// a janela em -03 (fuso do Brasil) e gravaria as horas erradas.
@@ -255,7 +258,10 @@ export function observedRowFrom(
 	// IQAr só existe se os 5 poluentes da CONAMA estão presentes. Faltando um, o
 	// índice fica NULL: computá-lo com um 0 inventado publicaria "Boa" num dado
 	// que não mede poluição.
-	const concs = { pm25, pm10, o3, no2, so2 } as Record<Pollutant, number | null>;
+	const concs = { pm25, pm10, o3, no2, so2 } as Record<
+		Pollutant,
+		number | null
+	>;
 	const complete = IQAR_INPUT.every((p) => concs[p] !== null);
 	const iqar = complete ? globalIQAr(concs as Record<Pollutant, number>) : null;
 
@@ -271,7 +277,10 @@ export function observedRowFrom(
 		iqarIndex: iqar?.iqar ?? null,
 		iqarClassification: iqar ? classifyIndex(iqar.iqar) : null,
 		primaryPollutant: iqar?.primary ?? null,
-		source: timestamp < analysisCutoff ? CAMPS_ANALYSIS_SOURCE : CAMPS_FORECAST_SOURCE,
+		source:
+			timestamp < analysisCutoff
+				? CAMPS_ANALYSIS_SOURCE
+				: CAMPS_FORECAST_SOURCE,
 	};
 }
 
@@ -363,7 +372,9 @@ export type BackfillDaysParseResult =
  * Valida o parâmetro `?days=N` do disparo manual (`POST /ingest?days=N`).
  * Ausente (`null`/`undefined`) mantém o modo horário padrão (`LOOKBACK_HOURS`).
  */
-export function parseBackfillDays(raw: string | null | undefined): BackfillDaysParseResult {
+export function parseBackfillDays(
+	raw: string | null | undefined,
+): BackfillDaysParseResult {
 	if (raw === null || raw === undefined) {
 		return { ok: true, days: undefined };
 	}
@@ -388,7 +399,11 @@ export function parseBackfillDays(raw: string | null | undefined): BackfillDaysP
  * shape inesperado é reportado com o que foi recebido — nunca normalizado à
  * força, porque `pm2_5: "não sou lista"` normalizado vira lixo silencioso.
  */
-function readHourly(payload: unknown, vars: string[], label: string): OpenMeteoHourly {
+function readHourly(
+	payload: unknown,
+	vars: string[],
+	label: string,
+): OpenMeteoHourly {
 	const hourly = (payload as { hourly?: unknown } | null)?.hourly;
 	const time = (hourly as { time?: unknown } | null)?.time;
 	if (!Array.isArray(time)) {
@@ -446,8 +461,6 @@ export interface IngestOptions {
 	now?: Date;
 	/** Backfill manual em dias (1..MAX_BACKFILL_DAYS): ajusta past_days=days e lookbackHours=days*24. */
 	days?: number;
-	pastDays?: number;
-	forecastDays?: number;
 	lookbackHours?: number;
 	fetchImpl?: typeof fetch;
 	log?: (msg: string) => void;
@@ -513,50 +526,52 @@ async function ingestStation(
 		}
 
 		if (observed.length === 0 && features.length === 0) {
-			return { stationId: station.id, ok: true, observedRows: 0, featureRows: 0, error: null };
+			return {
+				stationId: station.id,
+				ok: true,
+				observedRows: 0,
+				featureRows: 0,
+				error: null,
+			};
 		}
 
 		// `batch` do D1 roda tudo numa transação: ou a estação entra inteira,
 		// ou nada. É o que impede uma tabela meio escrita após falha parcial.
 		await env.DB.batch([
 			...observed.map((r) =>
-				env.DB
-					.prepare(buildObservedUpsert())
-					.bind(
-						crypto.randomUUID(),
-						r.stationId,
-						r.timestamp,
-						r.pm25,
-						r.pm10,
-						r.so2,
-						r.no2,
-						r.o3,
-						r.co,
-						r.iqarIndex,
-						r.iqarClassification,
-						r.primaryPollutant,
-						r.source,
-					),
+				env.DB.prepare(buildObservedUpsert()).bind(
+					crypto.randomUUID(),
+					r.stationId,
+					r.timestamp,
+					r.pm25,
+					r.pm10,
+					r.so2,
+					r.no2,
+					r.o3,
+					r.co,
+					r.iqarIndex,
+					r.iqarClassification,
+					r.primaryPollutant,
+					r.source,
+				),
 			),
 			...features.map((r) =>
-				env.DB
-					.prepare(buildFeaturesUpsert())
-					.bind(
-						crypto.randomUUID(),
-						r.stationId,
-						r.timestamp,
-						r.temperature,
-						r.relativeHumidity,
-						r.windSpeed,
-						r.windDirection,
-						r.windU,
-						r.windV,
-						r.boundaryLayerHeight,
-						r.surfacePressure,
-						r.solarRadiation,
-						r.isForecast,
-						r.source,
-					),
+				env.DB.prepare(buildFeaturesUpsert()).bind(
+					crypto.randomUUID(),
+					r.stationId,
+					r.timestamp,
+					r.temperature,
+					r.relativeHumidity,
+					r.windSpeed,
+					r.windDirection,
+					r.windU,
+					r.windV,
+					r.boundaryLayerHeight,
+					r.surfacePressure,
+					r.solarRadiation,
+					r.isForecast,
+					r.source,
+				),
 			),
 		]);
 
@@ -587,19 +602,27 @@ async function ingestStation(
 	}
 }
 
-export async function ingest(env: Env, opts: IngestOptions = {}): Promise<IngestReport> {
+export async function ingest(
+	env: Env,
+	opts: IngestOptions = {},
+): Promise<IngestReport> {
 	if (opts.days !== undefined) {
-		if (!Number.isInteger(opts.days) || opts.days < 1 || opts.days > MAX_BACKFILL_DAYS) {
+		if (
+			!Number.isInteger(opts.days) ||
+			opts.days < 1 ||
+			opts.days > MAX_BACKFILL_DAYS
+		) {
 			throw new Error(
 				`Parâmetro 'days' inválido (${opts.days}): deve ser inteiro entre 1 e ${MAX_BACKFILL_DAYS}.`,
 			);
 		}
 	}
 	const now = opts.now ?? new Date();
-	const pastDays = opts.pastDays ?? opts.days ?? PAST_DAYS;
-	const forecastDays = opts.forecastDays ?? FORECAST_DAYS;
+	const pastDays = opts.days ?? PAST_DAYS;
+	const forecastDays = FORECAST_DAYS;
 	const lookbackHours =
-		opts.lookbackHours ?? (opts.days !== undefined ? opts.days * 24 : LOOKBACK_HOURS);
+		opts.lookbackHours ??
+		(opts.days !== undefined ? opts.days * 24 : LOOKBACK_HOURS);
 	const window = hourWindow(now, lookbackHours);
 	const analysisCutoff = dayStart(now);
 	const doFetch = opts.fetchImpl ?? fetch;
@@ -655,17 +678,27 @@ export default {
 		}
 		if (req.method !== "POST") {
 			return new Response(
-				JSON.stringify({ error: "Método não permitido; use POST /ingest." }, null, 2),
+				JSON.stringify(
+					{ error: "Método não permitido; use POST /ingest." },
+					null,
+					2,
+				),
 				{
 					status: 405,
 					headers: { "content-type": "application/json", allow: "POST" },
 				},
 			);
 		}
-		if (env.INGEST_TOKEN && req.headers.get("X-Ingest-Token") !== env.INGEST_TOKEN) {
+		if (
+			env.INGEST_TOKEN !== undefined &&
+			(env.INGEST_TOKEN === "" ||
+				req.headers.get("X-Ingest-Token") !== env.INGEST_TOKEN)
+		) {
 			return new Response(
 				JSON.stringify(
-					{ error: "Não autorizado: header X-Ingest-Token ausente ou inválido." },
+					{
+						error: "Não autorizado: header X-Ingest-Token ausente ou inválido.",
+					},
 					null,
 					2,
 				),
@@ -677,10 +710,13 @@ export default {
 		}
 		const parsedDays = parseBackfillDays(url.searchParams.get("days"));
 		if (!parsedDays.ok) {
-			return new Response(JSON.stringify({ error: parsedDays.error }, null, 2), {
-				status: 400,
-				headers: { "content-type": "application/json" },
-			});
+			return new Response(
+				JSON.stringify({ error: parsedDays.error }, null, 2),
+				{
+					status: 400,
+					headers: { "content-type": "application/json" },
+				},
+			);
 		}
 		const report = await ingest(env, {
 			days: parsedDays.days,
