@@ -5,7 +5,7 @@
 **Branch / Worktree:** `floor/dados-insitu`  
 **Consumidor direto:** `workers/ingestion/src/index.ts` (worker de tempo real) e `ml/training/build_real_dataset.py`  
 **Amostras reais versionadas:**
-- Snapshot `16:00 BRT`: [`docs/research/amostras/iema_api_mapa_live.json`](./amostras/iema_api_mapa_live.json) e [`docs/research/amostras/iema_api_estacoes_48h_sample.json`](./amostras/iema_api_estacoes_48h_sample.csv)
+- Snapshot `16:00 BRT`: [`docs/research/amostras/iema_api_mapa_live.json`](./amostras/iema_api_mapa_live.json) e [`docs/research/amostras/iema_api_estacoes_48h_sample.json`](./amostras/iema_api_estacoes_48h_sample.json)
 - Snapshot `17:00 BRT` (comparativo 2 horas + todas as 16 estações): [`docs/research/amostras/iema_api_mapa_17h_comparison.json`](./amostras/iema_api_mapa_17h_comparison.json)
 - Código-fonte do cliente oficial IEMA/PRODEST analisado: `https://cdn.es.gov.br/scripts/jquery/jquery-qualidadeArES/1.0.0/js/qualidadeArES.js`
 
