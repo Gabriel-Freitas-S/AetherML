@@ -1,0 +1,403 @@
+{
+	"cases": [
+		{
+			"description": "camburi_quinta_tarde",
+			"station_id": "ramqar_camburi",
+			"iso_ts": "2026-10-01T16:00",
+			"order": "v2",
+			"flags": {
+				"id": "ramqar_camburi",
+				"name": "Camburi - Vit\u00f3ria",
+				"municipality": "Vit\u00f3ria",
+				"lat": -20.2764,
+				"lon": -40.2881,
+				"coastal": true,
+				"downwind_tubarao": true
+			},
+			"meteo": {
+				"temperature_2m": 32.2,
+				"relative_humidity_2m": 58,
+				"wind_speed_10m": 18.2,
+				"wind_direction_10m": 47,
+				"pressure_msl": 1010.1,
+				"shortwave_radiation": 912.0,
+				"boundary_layer_height": 590.0
+			},
+			"aq": {
+				"pm25": 11.2,
+				"pm10": 14.0,
+				"o3": 108.0,
+				"no2": 2.5,
+				"so2": 6.9
+			},
+			"lags": {
+				"pm25": 13.2,
+				"pm10": 15.8,
+				"no2": 3.0,
+				"o3": 99.0,
+				"pblh6": 514.1666666666666
+			},
+			"lags1": {
+				"pm25": 11.2,
+				"pm10": 14.0,
+				"no2": 2.5,
+				"o3": 108.0,
+				"so2": 6.9
+			},
+			"expected_features": [
+				32.2, 58.0, 5.06, 47.0, -3.7, -3.45, 590.0, 1010.1, 912.0, -0.866, -0.5,
+				0.4339, -0.901, 0.0, 44.0, 1.22, 0.32, 0.119, 3.0, 0.579, 13.2, 15.8,
+				3.0, 99.0, 514.17, 11.2, 14.0, 2.5, 108.0, 6.9
+			],
+			"feature_names": [
+				"temperature",
+				"relative_humidity",
+				"wind_speed",
+				"wind_direction",
+				"wind_u",
+				"wind_v",
+				"boundary_layer_height",
+				"surface_pressure",
+				"solar_radiation",
+				"hour_sin",
+				"hour_cos",
+				"dow_sin",
+				"dow_cos",
+				"is_weekend",
+				"traffic_speed_avg",
+				"traffic_delay_ratio",
+				"traffic_congestion_index",
+				"satellite_aod",
+				"satellite_tropomi_no2",
+				"satellite_uvai",
+				"pm25_lag24",
+				"pm10_lag24",
+				"no2_lag24",
+				"o3_lag24",
+				"pblh_rolling6",
+				"pm25_lag1",
+				"pm10_lag1",
+				"no2_lag1",
+				"o3_lag1",
+				"so2_lag1"
+			]
+		},
+		{
+			"description": "camburi_sexta_meiodia",
+			"station_id": "ramqar_camburi",
+			"iso_ts": "2026-10-02T12:00",
+			"order": "v2",
+			"flags": {
+				"id": "ramqar_camburi",
+				"name": "Camburi - Vit\u00f3ria",
+				"municipality": "Vit\u00f3ria",
+				"lat": -20.2764,
+				"lon": -40.2881,
+				"coastal": true,
+				"downwind_tubarao": true
+			},
+			"meteo": {
+				"temperature_2m": 25.3,
+				"relative_humidity_2m": 73,
+				"wind_speed_10m": 6.5,
+				"wind_direction_10m": 208,
+				"pressure_msl": 1016.0,
+				"shortwave_radiation": 427.0,
+				"boundary_layer_height": 560.0
+			},
+			"aq": {
+				"pm25": 15.9,
+				"pm10": 17.5,
+				"o3": 97.0,
+				"no2": 6.0,
+				"so2": 7.5
+			},
+			"lags": {
+				"pm25": 11.5,
+				"pm10": 14.3,
+				"no2": 6.2,
+				"o3": 75.0,
+				"pblh6": 490.0
+			},
+			"lags1": {
+				"pm25": 15.9,
+				"pm10": 17.5,
+				"no2": 6.0,
+				"o3": 97.0,
+				"so2": 7.5
+			},
+			"expected_features": [
+				25.3, 73.0, 1.81, 208.0, 0.85, 1.59, 560.0, 1016.0, 427.0, 0.0, -1.0,
+				-0.4339, -0.901, 0.0, 44.0, 1.22, 0.32, 0.116, 6.2, 0.574, 11.5, 14.3,
+				6.2, 75.0, 490.0, 15.9, 17.5, 6.0, 97.0, 7.5
+			],
+			"feature_names": [
+				"temperature",
+				"relative_humidity",
+				"wind_speed",
+				"wind_direction",
+				"wind_u",
+				"wind_v",
+				"boundary_layer_height",
+				"surface_pressure",
+				"solar_radiation",
+				"hour_sin",
+				"hour_cos",
+				"dow_sin",
+				"dow_cos",
+				"is_weekend",
+				"traffic_speed_avg",
+				"traffic_delay_ratio",
+				"traffic_congestion_index",
+				"satellite_aod",
+				"satellite_tropomi_no2",
+				"satellite_uvai",
+				"pm25_lag24",
+				"pm10_lag24",
+				"no2_lag24",
+				"o3_lag24",
+				"pblh_rolling6",
+				"pm25_lag1",
+				"pm10_lag1",
+				"no2_lag1",
+				"o3_lag1",
+				"so2_lag1"
+			]
+		},
+		{
+			"description": "camburi_sabado_fimdesemana",
+			"station_id": "ramqar_camburi",
+			"iso_ts": "2026-10-03T18:00",
+			"order": "v2",
+			"flags": {
+				"id": "ramqar_camburi",
+				"name": "Camburi - Vit\u00f3ria",
+				"municipality": "Vit\u00f3ria",
+				"lat": -20.2764,
+				"lon": -40.2881,
+				"coastal": true,
+				"downwind_tubarao": true
+			},
+			"meteo": {
+				"temperature_2m": 24.9,
+				"relative_humidity_2m": 85,
+				"wind_speed_10m": 9.5,
+				"wind_direction_10m": 61,
+				"pressure_msl": 1014.7,
+				"shortwave_radiation": 264.0,
+				"boundary_layer_height": 585.0
+			},
+			"aq": {
+				"pm25": 9.2,
+				"pm10": 12.6,
+				"o3": 71.0,
+				"no2": 2.8,
+				"so2": 6.7
+			},
+			"lags": {
+				"pm25": 15.4,
+				"pm10": 18.8,
+				"no2": 5.4,
+				"o3": 101.0,
+				"pblh6": 554.1666666666666
+			},
+			"lags1": {
+				"pm25": 9.2,
+				"pm10": 12.6,
+				"no2": 2.8,
+				"o3": 71.0,
+				"so2": 6.7
+			},
+			"expected_features": [
+				24.9, 85.0, 2.64, 61.0, -2.31, -1.28, 585.0, 1014.7, 264.0, -1.0, -0.0,
+				-0.9749, -0.2225, 1.0, 52.0, 1.08, 0.18, 0.127, 5.4, 0.591, 15.4, 18.8,
+				5.4, 101.0, 554.17, 9.2, 12.6, 2.8, 71.0, 6.7
+			],
+			"feature_names": [
+				"temperature",
+				"relative_humidity",
+				"wind_speed",
+				"wind_direction",
+				"wind_u",
+				"wind_v",
+				"boundary_layer_height",
+				"surface_pressure",
+				"solar_radiation",
+				"hour_sin",
+				"hour_cos",
+				"dow_sin",
+				"dow_cos",
+				"is_weekend",
+				"traffic_speed_avg",
+				"traffic_delay_ratio",
+				"traffic_congestion_index",
+				"satellite_aod",
+				"satellite_tropomi_no2",
+				"satellite_uvai",
+				"pm25_lag24",
+				"pm10_lag24",
+				"no2_lag24",
+				"o3_lag24",
+				"pblh_rolling6",
+				"pm25_lag1",
+				"pm10_lag1",
+				"no2_lag1",
+				"o3_lag1",
+				"so2_lag1"
+			]
+		},
+		{
+			"description": "enseada_sua_quinta_ponte",
+			"station_id": "ramqar_enseada_sua",
+			"iso_ts": "2026-10-01T16:00",
+			"order": "v2",
+			"flags": {
+				"id": "ramqar_enseada_sua",
+				"name": "Enseada do Su\u00e1 - Vit\u00f3ria",
+				"municipality": "Vit\u00f3ria",
+				"lat": -20.3125,
+				"lon": -40.287,
+				"coastal": true,
+				"bridge_proximity": true
+			},
+			"meteo": {
+				"temperature_2m": 32.2,
+				"relative_humidity_2m": 58,
+				"wind_speed_10m": 18.2,
+				"wind_direction_10m": 47,
+				"pressure_msl": 1010.1,
+				"shortwave_radiation": 912.0,
+				"boundary_layer_height": 590.0
+			},
+			"aq": {
+				"pm25": 11.2,
+				"pm10": 14.0,
+				"o3": 108.0,
+				"no2": 2.5,
+				"so2": 6.9
+			},
+			"lags": {
+				"pm25": 13.2,
+				"pm10": 15.8,
+				"no2": 3.0,
+				"o3": 99.0,
+				"pblh6": 514.1666666666666
+			},
+			"lags1": {
+				"pm25": 11.2,
+				"pm10": 14.0,
+				"no2": 2.5,
+				"o3": 108.0,
+				"so2": 6.9
+			},
+			"expected_features": [
+				32.2, 58.0, 5.06, 47.0, -3.7, -3.45, 590.0, 1010.1, 912.0, -0.866, -0.5,
+				0.4339, -0.901, 0.0, 44.0, 1.52, 0.416, 0.119, 3.0, 0.579, 13.2, 15.8,
+				3.0, 99.0, 514.17, 11.2, 14.0, 2.5, 108.0, 6.9
+			],
+			"feature_names": [
+				"temperature",
+				"relative_humidity",
+				"wind_speed",
+				"wind_direction",
+				"wind_u",
+				"wind_v",
+				"boundary_layer_height",
+				"surface_pressure",
+				"solar_radiation",
+				"hour_sin",
+				"hour_cos",
+				"dow_sin",
+				"dow_cos",
+				"is_weekend",
+				"traffic_speed_avg",
+				"traffic_delay_ratio",
+				"traffic_congestion_index",
+				"satellite_aod",
+				"satellite_tropomi_no2",
+				"satellite_uvai",
+				"pm25_lag24",
+				"pm10_lag24",
+				"no2_lag24",
+				"o3_lag24",
+				"pblh_rolling6",
+				"pm25_lag1",
+				"pm10_lag1",
+				"no2_lag1",
+				"o3_lag1",
+				"so2_lag1"
+			]
+		},
+		{
+			"description": "camburi_quinta_v1",
+			"station_id": "ramqar_camburi",
+			"iso_ts": "2026-10-01T16:00",
+			"order": "v1",
+			"flags": {
+				"id": "ramqar_camburi",
+				"name": "Camburi - Vit\u00f3ria",
+				"municipality": "Vit\u00f3ria",
+				"lat": -20.2764,
+				"lon": -40.2881,
+				"coastal": true,
+				"downwind_tubarao": true
+			},
+			"meteo": {
+				"temperature_2m": 32.2,
+				"relative_humidity_2m": 58,
+				"wind_speed_10m": 18.2,
+				"wind_direction_10m": 47,
+				"pressure_msl": 1010.1,
+				"shortwave_radiation": 912.0,
+				"boundary_layer_height": 590.0
+			},
+			"aq": {
+				"pm25": 11.2,
+				"pm10": 14.0,
+				"o3": 108.0,
+				"no2": 2.5,
+				"so2": 6.9
+			},
+			"lags": {
+				"pm25": 13.2,
+				"pm10": 15.8,
+				"no2": 3.0,
+				"o3": 99.0,
+				"pblh6": 514.1666666666666
+			},
+			"lags1": null,
+			"expected_features": [
+				32.2, 58.0, 5.06, 47.0, -3.7, -3.45, 590.0, 1010.1, 912.0, -0.866, -0.5,
+				0.4339, -0.901, 0.0, 44.0, 1.22, 0.32, 0.119, 3.0, 0.579, 13.2, 15.8,
+				3.0, 99.0, 514.17
+			],
+			"feature_names": [
+				"temperature",
+				"relative_humidity",
+				"wind_speed",
+				"wind_direction",
+				"wind_u",
+				"wind_v",
+				"boundary_layer_height",
+				"surface_pressure",
+				"solar_radiation",
+				"hour_sin",
+				"hour_cos",
+				"dow_sin",
+				"dow_cos",
+				"is_weekend",
+				"traffic_speed_avg",
+				"traffic_delay_ratio",
+				"traffic_congestion_index",
+				"satellite_aod",
+				"satellite_tropomi_no2",
+				"satellite_uvai",
+				"pm25_lag24",
+				"pm10_lag24",
+				"no2_lag24",
+				"o3_lag24",
+				"pblh_rolling6"
+			]
+		}
+	]
+}

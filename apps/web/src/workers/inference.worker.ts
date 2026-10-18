@@ -1,6 +1,14 @@
 // apps/web/src/workers/inference.worker.ts — Worker de Inferência WASM SIMD + Saabas XAI
 /// <reference lib="webworker" />
 import { type Pollutant, globalIQAr } from "@aetherml/core-iqar";
+import {
+	type AQSeries,
+	type CalibrationData,
+	FEATURE_NAMES_V2,
+	type HourlySeries,
+	type StationFlags,
+	runRecursiveForecast,
+} from "@aetherml/inference-client";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -11,13 +19,22 @@ type PredictMsg = {
 	featureNames: string[];
 	rows: number[][];
 };
+type PredictForecastMsg = {
+	type: "predict_forecast";
+	stationId: string;
+	flags?: StationFlags;
+	meteo: HourlySeries;
+	aq: AQSeries;
+	cutoff?: string;
+	hours?: number;
+};
 type SimulateMsg = {
 	type: "simulate";
 	base: number[];
 	deltas: Record<string, number>;
 	featureNames: string[];
 };
-type InMsg = InitMsg | PredictMsg | SimulateMsg;
+type InMsg = InitMsg | PredictMsg | PredictForecastMsg | SimulateMsg;
 
 interface TreeNode {
 	leaf: boolean;
@@ -46,6 +63,8 @@ let ort: any = null;
 const sessions: Record<string, any> = {};
 const topologies: Record<string, SaabasTopology> = {};
 let version = "v2026.38.5";
+let featureNames: string[] = [...FEATURE_NAMES_V2];
+let calibrationData: CalibrationData = {};
 let isInitialized = false;
 
 /**
@@ -100,6 +119,19 @@ async function init(manifestUrl = "/models/registry.json") {
 		const res = await fetch(manifestUrl);
 		const manifest = await res.json();
 		version = manifest.active_version || "v2026.38.5";
+		if (manifest.feature_names_v1 && Array.isArray(manifest.feature_names_v1)) {
+			featureNames = manifest.feature_names_v1;
+		}
+
+		// Carrega calibration.json se disponível
+		try {
+			const calRes = await fetch("/models/calibration.json");
+			if (calRes.ok) {
+				calibrationData = await calRes.json();
+			}
+		} catch (err) {
+			console.warn("[Worker] Falha ao carregar calibration.json:", err);
+		}
 
 		const targets: Pollutant[] = ["pm25", "pm10", "o3", "no2", "so2"];
 
@@ -142,9 +174,114 @@ async function init(manifestUrl = "/models/registry.json") {
 	}
 }
 
+/**
+ * Previsão recursiva de 120h com features construídas em TS no Worker
+ * e inferência via ONNX Runtime Web (WASM SIMD) + Saabas XAI.
+ */
+async function predictForecast(
+	stationId: string,
+	flags: StationFlags,
+	meteo: HourlySeries,
+	aq: AQSeries,
+	cutoff?: string,
+	hours = 120,
+) {
+	const t0 = performance.now();
+	if (!isInitialized) {
+		await init();
+	}
+
+	const targets: Pollutant[] = ["pm25", "pm10", "o3", "no2", "so2"];
+
+	const forecast = await runRecursiveForecast({
+		stationId,
+		flags,
+		meteo,
+		aq,
+		cutoff,
+		hours,
+		order: "v2",
+		featureNames,
+		calibration: calibrationData,
+		predictFn: async (feats: number[]) => {
+			const nFeat = feats.length;
+			const tensor = new ort.Tensor("float32", new Float32Array(feats), [
+				1,
+				nFeat,
+			]);
+			const rawMap: Record<string, number> = {};
+			for (const t of targets) {
+				const session = sessions[t];
+				if (session) {
+					try {
+						const output = await session.run({ input: tensor });
+						const outTensor = output.variable || Object.values(output)[0];
+						rawMap[t] = Number((outTensor.data as Float32Array)[0]);
+					} catch (e) {
+						rawMap[t] = 10.0;
+					}
+				} else {
+					rawMap[t] = 10.0;
+				}
+			}
+			return rawMap;
+		},
+	});
+
+	// Calcula IQAr CONAMA 491 por ponto
+	const points = forecast.points.map((p) => {
+		const concs = {
+			pm25: p.observed.pm25,
+			pm10: p.observed.pm10,
+			o3: p.observed.o3,
+			no2: p.observed.no2,
+			so2: p.observed.so2,
+		};
+		const { iqar, classification, primary } = globalIQAr(concs);
+		return {
+			hour: p.hour,
+			day: p.day,
+			timestamp: p.timestamp,
+			...concs,
+			iqar,
+			classification,
+			primary,
+			features: p.features,
+			observed: p.observed,
+		};
+	});
+
+	// Decomposição Saabas para a hora corrente (h=0) para o poluente crítico
+	const criticalPollutant = points[0]?.primary || "pm25";
+	let saabasContributions: Array<{ feature: string; phi: number }> = [];
+	let baseValue = 15.0;
+
+	const top = topologies[criticalPollutant];
+	if (top && points[0]?.features) {
+		baseValue = top.base_value;
+		const { phi } = computeSaabas(points[0].features, top);
+		saabasContributions = Object.entries(phi)
+			.map(([feature, val]) => ({ feature, phi: Math.round(val * 100) / 100 }))
+			.filter((item) => Math.abs(item.phi) > 0.05)
+			.sort((a, b) => Math.abs(b.phi) - Math.abs(a.phi));
+	}
+
+	const latencyMs = Math.round((performance.now() - t0) * 100) / 100;
+
+	self.postMessage({
+		type: "result",
+		version,
+		stationId,
+		points,
+		saabas: saabasContributions,
+		baseValue,
+		latencyMs,
+	});
+}
+
 async function predict(
 	stationId: string,
-	featureNames: string[],
+	featNames: string[],
 	rows: number[][],
 ) {
 	const t0 = performance.now();
@@ -153,7 +290,7 @@ async function predict(
 	}
 
 	const targets: Pollutant[] = ["pm25", "pm10", "o3", "no2", "so2"];
-	const nHours = Math.min(120, rows.length); // Suporte a horizonte estendido de 5 dias (120h)
+	const nHours = Math.min(120, rows.length);
 	const predictions: Record<Pollutant, number[]> = {
 		pm25: [],
 		pm10: [],
@@ -167,7 +304,7 @@ async function predict(
 		const session = sessions[t];
 		if (session && rows.length > 0) {
 			try {
-				const nFeat = rows[0]?.length ?? featureNames.length ?? 25;
+				const nFeat = rows[0]?.length ?? featNames.length ?? 25;
 				const flatData = new Float32Array(nHours * nFeat);
 				for (let i = 0; i < nHours; i++) {
 					for (let j = 0; j < nFeat; j++) {
@@ -182,13 +319,11 @@ async function predict(
 					predictions[t].push(Math.max(0.5, Math.round(outData[i] * 10) / 10));
 				}
 			} catch (err) {
-				// Fallback heurístico em caso de exceção no tensor
 				for (let i = 0; i < nHours; i++) {
 					predictions[t].push(Math.round((rows[i][0] || 15) * 1.2));
 				}
 			}
 		} else {
-			// Fallback a partir de lags nas features
 			for (let i = 0; i < nHours; i++) {
 				predictions[t].push(12.0 + (i % 5));
 			}
@@ -208,19 +343,23 @@ async function predict(
 		const { iqar, classification, primary } = globalIQAr(concs);
 		points.push({
 			hour: h,
+			day: Math.floor(h / 24) + 1,
 			...concs,
 			iqar,
 			classification,
 			primary,
+			observed: concs,
 		});
 	}
 
 	// 3. Decomposição Saabas para a hora corrente (h=0) para o poluente crítico
 	const criticalPollutant = points[0]?.primary || "pm25";
 	let saabasContributions: Array<{ feature: string; phi: number }> = [];
+	let baseValue = 15.0;
 
 	const top = topologies[criticalPollutant];
 	if (top && rows[0]) {
+		baseValue = top.base_value;
 		const { phi } = computeSaabas(rows[0], top);
 		saabasContributions = Object.entries(phi)
 			.map(([feature, val]) => ({ feature, phi: Math.round(val * 100) / 100 }))
@@ -236,6 +375,7 @@ async function predict(
 		stationId,
 		points,
 		saabas: saabasContributions,
+		baseValue,
 		latencyMs,
 	});
 }
@@ -243,22 +383,31 @@ async function predict(
 async function simulate(
 	baseRow: number[],
 	deltas: Record<string, number>,
-	featureNames: string[],
+	featNames: string[],
 ) {
 	const modified = [...baseRow];
 	for (const [feat, delta] of Object.entries(deltas)) {
-		const idx = featureNames.indexOf(feat);
+		const idx = featNames.indexOf(feat);
 		if (idx !== -1) {
 			modified[idx] += delta;
 		}
 	}
-	await predict("simulation", featureNames, [modified]);
+	await predict("simulation", featNames, [modified]);
 }
 
 self.onmessage = async (e: MessageEvent<InMsg>) => {
 	try {
 		if (e.data.type === "init") {
 			await init(e.data.manifestUrl);
+		} else if (e.data.type === "predict_forecast") {
+			await predictForecast(
+				e.data.stationId,
+				e.data.flags,
+				e.data.meteo,
+				e.data.aq,
+				e.data.cutoff,
+				e.data.hours,
+			);
 		} else if (e.data.type === "predict") {
 			await predict(e.data.stationId, e.data.featureNames, e.data.rows);
 		} else if (e.data.type === "simulate") {

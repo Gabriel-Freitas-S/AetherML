@@ -5,6 +5,9 @@ import unocss from "unocss/astro";
 export default defineConfig({
 	integrations: [svelte(), unocss()],
 	vite: {
+		worker: {
+			format: "es",
+		},
 		server: {
 			headers: {
 				"Cross-Origin-Opener-Policy": "same-origin",

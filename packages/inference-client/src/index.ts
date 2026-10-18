@@ -1,8 +1,16 @@
 // packages/inference-client/src/index.ts
-export * from "./weather-cache.js";
+export * from "./weather-cache.ts";
+export * from "./features.ts";
+export * from "./calibrate.ts";
+export * from "./forecast.ts";
+
+import type { StationFlags } from "./features.ts";
+import type { AQSeries, HourlySeries } from "./forecast.ts";
 
 export interface PredictionPoint {
 	hour: number;
+	day?: number;
+	timestamp?: string;
 	pm25: number;
 	pm10: number;
 	o3: number;
@@ -11,6 +19,14 @@ export interface PredictionPoint {
 	iqar: number;
 	classification: "Boa" | "Moderada" | "Ruim" | "Muito Ruim" | "Péssima";
 	primary: "pm25" | "pm10" | "o3" | "no2" | "so2";
+	features?: number[];
+	observed?: {
+		pm25: number;
+		pm10: number;
+		o3: number;
+		no2: number;
+		so2: number;
+	};
 }
 
 export interface SaabasContribution {
@@ -31,6 +47,7 @@ export interface WorkerResultMsg {
 	points: PredictionPoint[];
 	saabas: SaabasContribution[];
 	latencyMs: number;
+	baseValue?: number;
 }
 
 export interface WorkerErrorMsg {
@@ -45,8 +62,12 @@ export class AetherInferenceClient {
 	private isReady = false;
 	private readyCallbacks: Array<() => void> = [];
 
-	constructor(workerUrl: string | URL) {
-		this.worker = new Worker(workerUrl, { type: "module" });
+	constructor(workerOrUrl: string | URL | Worker) {
+		if (typeof Worker !== "undefined" && workerOrUrl instanceof Worker) {
+			this.worker = workerOrUrl;
+		} else {
+			this.worker = new Worker(workerOrUrl, { type: "module" });
+		}
 		this.worker.onmessage = (e: MessageEvent<WorkerOutMsg>) => {
 			if (e.data.type === "ready") {
 				this.isReady = true;
@@ -90,6 +111,32 @@ export class AetherInferenceClient {
 				stationId,
 				featureNames,
 				rows,
+			});
+		});
+	}
+
+	predictForecast(params: {
+		stationId: string;
+		flags?: StationFlags;
+		meteo: HourlySeries;
+		aq: AQSeries;
+		cutoff?: string;
+		hours?: number;
+	}): Promise<WorkerResultMsg> {
+		return new Promise((resolve, reject) => {
+			const handler = (e: MessageEvent<WorkerOutMsg>) => {
+				if (e.data.type === "result") {
+					this.worker.removeEventListener("message", handler);
+					resolve(e.data);
+				} else if (e.data.type === "error") {
+					this.worker.removeEventListener("message", handler);
+					reject(new Error(e.data.message));
+				}
+			};
+			this.worker.addEventListener("message", handler);
+			this.worker.postMessage({
+				type: "predict_forecast",
+				...params,
 			});
 		});
 	}

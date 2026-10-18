@@ -2,6 +2,11 @@
 <script lang="ts">
 import { globalIQAr } from "@aetherml/core-iqar";
 import { nearestStation } from "@aetherml/geo";
+import {
+	AetherInferenceClient,
+	type SaabasContribution,
+	type StationFlags,
+} from "@aetherml/inference-client";
 import { onMount } from "svelte";
 // Rampa de IQAr: fonte ÚNICA de cor, ícone, badge e orientação de saúde por faixa.
 // A cópia local que existia aqui divergiria da do mapa e da comparação em silêncio —
@@ -133,39 +138,54 @@ const dayCards = $derived(buildFiveDayCards(points as any));
 const fiveDaysForecast = $derived(dayCards.cards);
 const dataAge = $derived(describeDataAge(dayCards.newestTimestamp));
 
-// Quem produziu os números que estão em tela. `open-meteo` acontece porque
-// `fetchLiveOpenMeteoFallback` TROCA a série da estação pela API pública: sem esta
-// marcação a tela continuaria se anunciando como saída do modelo, que é a
-// exigência do projeto ("é obrigatório usar ML") e não pode ser omitida.
+// Quem produziu os números que estão em tela. Se o bundle estiver desatualizado,
+// a inferência roda no cliente via WASM (origin: "ml", nota: "inferência no navegador (WASM)").
+// Se a inferência falhar, cai no display bruto de Open-Meteo (origin: "open-meteo").
 let originByStation = $state<Record<string, DataOrigin>>({});
+let inferenceNoticeByStation = $state<Record<string, string>>({});
+let saabasByStation = $state<
+	Record<
+		string,
+		{
+			contributions: SaabasContribution[];
+			baseValue: number;
+			primaryPollutant?: string;
+		}
+	>
+>({});
+
 const activeOrigin = $derived<DataOrigin>(
 	originByStation[activeId] ?? (bundle ? "ml" : "unknown"),
 );
 
 // A tira de proveniência substitui o banner de "desatualizado" E a linha de "Dado
 // mais recente": duas afordâncias, um fato.
-const provenance = $derived(
-	buildProvenance({
+const provenance = $derived.by(() => {
+	const prov = buildProvenance({
 		origin: activeOrigin,
 		age: dataAge,
 		isStale: dayCards.isStale,
 		isFallback: currentPick?.isFallback ?? false,
-	}),
-);
-
-const saabas = $derived.by(() => {
-	const st = stationWithFlags(activeId);
-	return [
-		{ feature: "wind_direction", phi: st.downwind_tubarao ? 14.2 : 3.1 },
-		{ feature: "boundary_layer_height", phi: 5.8 },
-		{
-			feature: "traffic_congestion_index",
-			phi: st.bridge_proximity ? 12.5 : 4.0,
-		},
-		{ feature: "satellite_aod", phi: 2.3 },
-		{ feature: "wind_speed", phi: -4.8 },
-	];
+	});
+	const notice = inferenceNoticeByStation[activeId];
+	if (notice && prov.origin.isMl) {
+		return {
+			...prov,
+			origin: {
+				...prov.origin,
+				detail: `${prov.origin.detail} (${notice})`,
+			},
+		};
+	}
+	return prov;
 });
+
+const currentSaabas = $derived(saabasByStation[activeId]);
+const saabasContributions = $derived(currentSaabas?.contributions ?? []);
+const saabasBaseValue = $derived(currentSaabas?.baseValue ?? 15.0);
+const saabasPrimary = $derived(
+	currentSaabas?.primaryPollutant ?? currentPoint?.primary ?? "pm25",
+);
 
 const activeStation = $derived.by(() => stationWithFlags(activeId));
 
@@ -192,6 +212,13 @@ function applyStation(
 	source = origin;
 	gpsDistance = distance;
 	saveStationId(id);
+
+	// Se a estação selecionada estiver com dados vencidos, dispara inferência ao vivo
+	const pts = bundle?.[id]?.points;
+	const lastPt = pts?.[pts.length - 1];
+	if (lastPt && new Date(lastPt.timestamp).getTime() < Date.now()) {
+		fetchLiveOpenMeteoFallback(id);
+	}
 }
 
 function handleChange(id: string, origin: "manual" | "gps") {
@@ -226,31 +253,132 @@ function formatPollutantName(pol?: string): string {
 }
 
 let refreshing = $state(false);
+let inferenceClient: AetherInferenceClient | null = null;
+
+function getInferenceClient(): AetherInferenceClient | null {
+	if (typeof window === "undefined" || typeof Worker === "undefined") {
+		return null;
+	}
+	if (!inferenceClient) {
+		try {
+			const worker = new Worker(
+				new URL("../workers/inference.worker.ts", import.meta.url),
+				{ type: "module" },
+			);
+			inferenceClient = new AetherInferenceClient(worker);
+			inferenceClient.init("/models/registry.json");
+		} catch (err) {
+			console.warn(
+				"[Dashboard] Falha ao inicializar Worker de inferência:",
+				err,
+			);
+			return null;
+		}
+	}
+	return inferenceClient;
+}
 
 async function fetchLiveOpenMeteoFallback(targetId: string) {
-	try {
-		const st = stationsMeta.find((s) => s.id === targetId) ?? stationsMeta[0];
-		if (!st) return;
-		const lat = st.lat ?? st.latitude ?? -20.2764;
-		const lon = st.lon ?? st.longitude ?? -40.2881;
-		const url = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide&past_days=1&forecast_days=6&timezone=America%2FSao_Paulo`;
-		const res = await fetch(url);
-		if (!res.ok) return;
-		const data = await res.json();
-		const h = data.hourly;
-		if (!h?.time?.length) return;
+	const st = stationsMeta.find((s) => s.id === targetId) ?? stationsMeta[0];
+	if (!st) return;
+	const lat = st.lat ?? st.latitude ?? -20.2764;
+	const lon = st.lon ?? st.longitude ?? -40.2881;
+	const flags: StationFlags = {
+		coastal: Boolean(st.coastal),
+		downwind_tubarao: Boolean(st.downwind_tubarao),
+		bridge_proximity: Boolean(st.bridge_proximity),
+	};
 
-		const pts = h.time.map((t: string, i: number) => {
+	let aqHourly: any = null;
+
+	try {
+		const aqUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide&past_days=2&forecast_days=6&timezone=UTC`;
+		const meteoUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,wind_direction_10m,pressure_msl,shortwave_radiation,boundary_layer_height&past_days=2&forecast_days=6&timezone=UTC`;
+
+		const [aqRes, meteoRes] = await Promise.all([
+			fetch(aqUrl),
+			fetch(meteoUrl),
+		]);
+		if (!aqRes.ok || !meteoRes.ok) {
+			throw new Error(`Open-Meteo HTTP ${aqRes.status}/${meteoRes.status}`);
+		}
+		const [aqData, meteoData] = await Promise.all([
+			aqRes.json(),
+			meteoRes.json(),
+		]);
+		aqHourly = aqData.hourly;
+		const meteoHourly = meteoData.hourly;
+
+		if (!aqHourly?.time?.length || !meteoHourly?.time?.length) {
+			throw new Error("Payload vazio da API Open-Meteo");
+		}
+
+		// Tenta rodar a inferência dos 5 modelos no navegador via Web Worker (WASM SIMD)
+		const client = getInferenceClient();
+		if (!client) {
+			throw new Error("Cliente de inferência indisponível");
+		}
+
+		const nowIso = new Date().toISOString();
+		const result = await client.predictForecast({
+			stationId: targetId,
+			flags,
+			meteo: meteoHourly,
+			aq: aqHourly,
+			cutoff: nowIso,
+			hours: 120,
+		});
+
+		if (result.points?.length && bundle) {
+			bundle[targetId] = {
+				station: st,
+				points: result.points,
+			};
+			bundle = { ...bundle };
+			originByStation = { ...originByStation, [targetId]: "ml" };
+			inferenceNoticeByStation = {
+				...inferenceNoticeByStation,
+				[targetId]: "inferência no navegador (WASM)",
+			};
+			saabasByStation = {
+				...saabasByStation,
+				[targetId]: {
+					contributions: result.saabas || [],
+					baseValue: result.baseValue ?? 15.0,
+					primaryPollutant: result.points[0]?.primary ?? "pm25",
+				},
+			};
+			return;
+		}
+	} catch (err) {
+		console.warn(
+			"[LiveFallback] Inferência no navegador indisponível ou falhou, caindo no fallback bruto Open-Meteo:",
+			err,
+		);
+	}
+
+	// Fallback bruto: exibe os pontos diretos da API apenas se a inferência falhar
+	try {
+		if (!aqHourly?.time?.length) {
+			const fallbackUrl = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&hourly=pm2_5,pm10,ozone,nitrogen_dioxide,sulphur_dioxide&past_days=1&forecast_days=6&timezone=America%2FSao_Paulo`;
+			const res = await fetch(fallbackUrl);
+			if (!res.ok) return;
+			const data = await res.json();
+			aqHourly = data.hourly;
+		}
+		if (!aqHourly?.time?.length) return;
+
+		const pts = aqHourly.time.map((t: string, i: number) => {
 			const ts = t.endsWith("Z") ? t : `${t}:00Z`;
 			return {
 				hour: i,
 				timestamp: ts,
 				observed: {
-					pm25: h.pm2_5?.[i] ?? 10,
-					pm10: h.pm10?.[i] ?? 15,
-					o3: h.ozone?.[i] ?? 30,
-					no2: h.nitrogen_dioxide?.[i] ?? 12,
-					so2: h.sulphur_dioxide?.[i] ?? 5,
+					pm25: aqHourly.pm2_5?.[i] ?? 10,
+					pm10: aqHourly.pm10?.[i] ?? 15,
+					o3: aqHourly.ozone?.[i] ?? 30,
+					no2: aqHourly.nitrogen_dioxide?.[i] ?? 12,
+					so2: aqHourly.sulphur_dioxide?.[i] ?? 5,
 				},
 			};
 		});
@@ -261,12 +389,20 @@ async function fetchLiveOpenMeteoFallback(targetId: string) {
 				points: pts,
 			};
 			bundle = { ...bundle };
-			// A série deixou de ser saída do modelo: a tira de proveniência precisa
-			// dizer isso em voz alta.
 			originByStation = { ...originByStation, [targetId]: "open-meteo" };
+			const newNotices = { ...inferenceNoticeByStation };
+			delete newNotices[targetId];
+			inferenceNoticeByStation = newNotices;
+
+			const newSaabas = { ...saabasByStation };
+			delete newSaabas[targetId];
+			saabasByStation = newSaabas;
 		}
 	} catch (err) {
-		console.warn("[LiveFallback] Falha ao consultar Open-Meteo ao vivo:", err);
+		console.warn(
+			"[LiveFallback] Falha total ao consultar Open-Meteo ao vivo:",
+			err,
+		);
 	}
 }
 
@@ -285,6 +421,8 @@ async function loadForecastData(forceRefresh = false) {
 		// Um bundle novo é o artefato do modelo: qualquer marcação de fallback da
 		// carga anterior só vale se o fallback rodar de novo, logo abaixo.
 		originByStation = {};
+		inferenceNoticeByStation = {};
+		saabasByStation = {};
 
 		// Se o bundle salvo estiver vencido, busca Open-Meteo ao vivo automaticamente
 		const pts = bundle?.[activeId]?.points;
@@ -361,6 +499,10 @@ onMount(() => {
 		document.removeEventListener("visibilitychange", onVisibilityChange);
 		window.removeEventListener("online", onOnline);
 		clearInterval(interval);
+		if (inferenceClient) {
+			inferenceClient.terminate();
+			inferenceClient = null;
+		}
 	};
 });
 </script>
@@ -588,10 +730,10 @@ onMount(() => {
   <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-8 anim-fade-up-d4 content-visibility-auto">
     <div class="lg:col-span-8">
       <Waterfall
-        contributions={saabas}
+        contributions={saabasContributions}
         stationName={activeStation.name}
-        primaryPollutant="pm25"
-        baseValue={14.8}
+        primaryPollutant={saabasPrimary}
+        baseValue={saabasBaseValue}
       />
     </div>
 

@@ -91,71 +91,79 @@ function getNaturalLanguageExplanation(item: SaabasContribution): string {
     </p>
   </div>
 
-  <!-- Lista em Cascata de Contribuições -->
-  <div class="space-y-3.5 my-4">
-    {#each contributions.slice(0, 6) as item}
-      {@const isPositive = item.phi > 0}
-      {@const barWidthPct = Math.min(100, Math.round((Math.abs(item.phi) / maxPhi) * 100))}
-      <div>
-        <div class="flex justify-between items-center text-xs mb-1">
-          <span class="font-medium text-slate-700">{getFeatureLabel(item.feature)}</span>
-          <span class="font-mono font-bold {isPositive ? 'text-orange-600' : 'text-emerald-600'}">
-            {isPositive ? `+${item.phi}` : item.phi} µg/m³
+  {#if !contributions || contributions.length === 0}
+    <div class="py-10 text-center text-slate-500 bg-slate-50/50 rounded-xl border border-dashed border-slate-200 my-4">
+      <span class="i-ph-chart-bar-horizontal-bold inline-block w-6 h-6 text-slate-400 mb-1.5"></span>
+      <p class="text-xs font-semibold text-slate-700">Explicação indisponível</p>
+      <p class="text-[11px] text-slate-400 mt-1">Nenhum cálculo de explicabilidade Saabas XAI disponível para este ponto no momento.</p>
+    </div>
+  {:else}
+    <!-- Lista em Cascata de Contribuições -->
+    <div class="space-y-3.5 my-4">
+      {#each contributions.slice(0, 6) as item}
+        {@const isPositive = item.phi > 0}
+        {@const barWidthPct = Math.min(100, Math.round((Math.abs(item.phi) / maxPhi) * 100))}
+        <div>
+          <div class="flex justify-between items-center text-xs mb-1">
+            <span class="font-medium text-slate-700">{getFeatureLabel(item.feature)}</span>
+            <span class="font-mono font-bold {isPositive ? 'text-orange-600' : 'text-emerald-600'}">
+              {isPositive ? `+${item.phi}` : item.phi} µg/m³
+            </span>
+          </div>
+
+          <!-- Barra Divergente -->
+          <div class="h-2 w-full bg-slate-200 rounded-full overflow-hidden flex">
+            <div class="w-1/2 flex justify-end">
+              {#if !isPositive}
+                <div
+                  class="h-full bg-gradient-to-l from-emerald-500 to-teal-600 rounded-l-full transition-all duration-300"
+                  style="width: {barWidthPct}%"
+                ></div>
+              {/if}
+            </div>
+            <div class="w-0.5 h-full bg-slate-400"></div>
+            <div class="w-1/2">
+              {#if isPositive}
+                <div
+                  class="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-r-full transition-all duration-300"
+                  style="width: {barWidthPct}%"
+                ></div>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Frase Explicativa em Linguagem Natural -->
+          <p class="text-[11px] text-slate-500 mt-1 italic leading-relaxed">
+            {getNaturalLanguageExplanation(item)}
+          </p>
+        </div>
+      {/each}
+    </div>
+
+    <!-- Rodapé com Balanço Aditivo -->
+    <div class="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
+      <span class="flex items-center gap-1.5">
+        <span>Valor Basal Médio</span>
+        <span class="katex inline-block"><span class="katex-html" aria-hidden="true"><span class="katex-base"><span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>:
+        <strong class="text-slate-700 font-mono">{baseValue} µg/m³</strong>
+      </span>
+      <span class="katex inline-block text-slate-700 font-medium" aria-label="ŷ = Φ₀ + Σ Φᵢ">
+        <span class="katex-html" aria-hidden="true">
+          <span class="katex-base">
+            <span class="mord mathnormal">y</span><span class="accent-body" style="left:-0.18em;"><span class="mord">^</span></span>
+            <span class="mspace" style="margin-right:0.25em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.25em;"></span>
           </span>
-        </div>
-
-        <!-- Barra Divergente -->
-        <div class="h-2 w-full bg-slate-200 rounded-full overflow-hidden flex">
-          <div class="w-1/2 flex justify-end">
-            {#if !isPositive}
-              <div
-                class="h-full bg-gradient-to-l from-emerald-500 to-teal-600 rounded-l-full transition-all duration-300"
-                style="width: {barWidthPct}%"
-              ></div>
-            {/if}
-          </div>
-          <div class="w-0.5 h-full bg-slate-400"></div>
-          <div class="w-1/2">
-            {#if isPositive}
-              <div
-                class="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-r-full transition-all duration-300"
-                style="width: {barWidthPct}%"
-              ></div>
-            {/if}
-          </div>
-        </div>
-
-        <!-- Frase Explicativa em Linguagem Natural -->
-        <p class="text-[11px] text-slate-500 mt-1 italic leading-relaxed">
-          {getNaturalLanguageExplanation(item)}
-        </p>
-      </div>
-    {/each}
-  </div>
-
-  <!-- Rodapé com Balanço Aditivo -->
-  <div class="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500">
-    <span class="flex items-center gap-1.5">
-      <span>Valor Basal Médio</span>
-      <span class="katex inline-block"><span class="katex-html" aria-hidden="true"><span class="katex-base"><span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span></span></span></span>:
-      <strong class="text-slate-700 font-mono">{baseValue} µg/m³</strong>
-    </span>
-    <span class="katex inline-block text-slate-700 font-medium" aria-label="ŷ = Φ₀ + Σ Φᵢ">
-      <span class="katex-html" aria-hidden="true">
-        <span class="katex-base">
-          <span class="mord mathnormal">y</span><span class="accent-body" style="left:-0.18em;"><span class="mord">^</span></span>
-          <span class="mspace" style="margin-right:0.25em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.25em;"></span>
-        </span>
-        <span class="katex-base">
-          <span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span>
-          <span class="mspace" style="margin-right:0.2em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2em;"></span>
-        </span>
-        <span class="katex-base">
-          <span class="mop op-symbol small-op">∑</span>
-          <span class="mspace" style="margin-right:0.15em;"></span>
-          <span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span>
+          <span class="katex-base">
+            <span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mtight">0</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span>
+            <span class="mspace" style="margin-right:0.2em;"></span><span class="mbin">+</span><span class="mspace" style="margin-right:0.2em;"></span>
+          </span>
+          <span class="katex-base">
+            <span class="mop op-symbol small-op">∑</span>
+            <span class="mspace" style="margin-right:0.15em;"></span>
+            <span class="mord"><span class="mord">Φ</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3em;"><span style="top:-2.55em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="katex-sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">i</span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.15em;"><span></span></span></span></span></span></span>
+          </span>
         </span>
       </span>
-    </span>
-  </div>
+    </div>
+  {/if}
 </div>
