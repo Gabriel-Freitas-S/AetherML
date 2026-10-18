@@ -5,10 +5,12 @@
 // "Mapa" nunca monte os painéis com listas de estações vazias.
 
 import { globalIQAr } from "@aetherml/core-iqar";
-import modelEval from "../../public/data/model-eval.json";
-import stationsData from "../../public/data/stations-data.json";
-import { currentPoint } from "./current-point";
-import { dominantConcentration } from "./dashboard-sections";
+import modelEval from "../../public/data/model-eval.json" with { type: "json" };
+import stationsData from "../../public/data/stations-data.json" with {
+	type: "json",
+};
+import { currentPoint } from "./current-point.ts";
+import { type SectionId, dominantConcentration } from "./dashboard-sections.ts";
 
 interface ObservedBlock {
 	pm25: number;
@@ -36,11 +38,16 @@ interface StationSeries {
 	points: { timestamp: string; observed: ObservedBlock }[];
 }
 
-export function getShellStaticProps(nowMs = Date.now()) {
+export function getShellStaticProps(
+	section: SectionId = "agora",
+	nowMs = Date.now(),
+) {
 	const bundle = stationsData as unknown as Record<string, StationSeries>;
 	const initialStationId = "ramqar_camburi";
 	const defaultStationData = bundle[initialStationId];
 
+	// Metadados enxutos (~1,6 KB) em todas as rotas: garante que o seletor de
+	// estações na aba "Agora" nunca monte vazio ao navegar de uma rota legada.
 	const stationsMeta = Object.values(bundle).map((item) => ({
 		...item.station,
 		id: item.station.id,
@@ -57,37 +64,44 @@ export function getShellStaticProps(nowMs = Date.now()) {
 		urban_canyon: item.station.urban_canyon,
 	}));
 
-	const initialMapStations = Object.values(bundle)
-		.map((item) => {
-			const picked = currentPoint(item.points, nowMs);
-			if (!picked) return null;
-			const res = globalIQAr(picked.point.observed);
-			return {
-				id: item.station.id,
-				name: item.station.name,
-				municipality: item.station.municipality,
-				latitude: item.station.latitude ?? item.station.lat,
-				longitude: item.station.longitude ?? item.station.lon,
-				iqar: res.iqar,
-				classification: res.classification,
-				primary: res.primary,
-				concentration: dominantConcentration(
-					picked.point.observed,
-					res.primary,
-				),
-			};
-		})
-		.filter((s) => s !== null);
+	const includeMap = section === "agora" || section === "mapa";
+	const initialMapStations = includeMap
+		? Object.values(bundle)
+				.map((item) => {
+					const picked = currentPoint(item.points, nowMs);
+					if (!picked) return null;
+					const res = globalIQAr(picked.point.observed);
+					return {
+						id: item.station.id,
+						name: item.station.name,
+						municipality: item.station.municipality,
+						latitude: item.station.latitude ?? item.station.lat,
+						longitude: item.station.longitude ?? item.station.lon,
+						iqar: res.iqar,
+						classification: res.classification,
+						primary: res.primary,
+						concentration: dominantConcentration(
+							picked.point.observed,
+							res.primary,
+						),
+					};
+				})
+				.filter((s) => s !== null)
+		: [];
 
-	const initialBundle = defaultStationData
-		? { [initialStationId]: defaultStationData }
-		: null;
+	const initialBundle =
+		section === "agora" && defaultStationData
+			? { [initialStationId]: defaultStationData }
+			: null;
+
+	const evalData =
+		section === "precisao" ? (modelEval as Record<string, unknown>) : null;
 
 	return {
 		stationsMeta,
 		initialStationId,
 		initialBundle,
 		initialMapStations,
-		evalData: modelEval as Record<string, unknown>,
+		evalData,
 	};
 }

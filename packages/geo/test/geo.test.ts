@@ -78,6 +78,27 @@ test("nearestStation lança erro descritivo quando a lista de estações está v
 	);
 });
 
+test("nearestStation lança erro quando nenhuma estação da lista possui coordenadas válidas", () => {
+	const invalidStations = [
+		{
+			id: "ramqar_camburi",
+			name: "Camburi",
+			municipality: "Vitória",
+		} as unknown as Station,
+		{
+			id: "ramqar_ibes",
+			name: "IBES",
+			municipality: "Vila Velha",
+			latitude: Number.NaN,
+			longitude: Number.NaN,
+		},
+	];
+	assert.throws(
+		() => nearestStation(-20.28, -40.29, invalidStations),
+		/coordenadas válidas|Nenhuma estação/,
+	);
+});
+
 test("resolveActiveStation respeita prioridade estrita: saved > gps > default > fallback", () => {
 	// 1. saved vence mesmo quando GPS aponta para outra estação
 	const rSaved = resolveActiveStation(STATIONS, {

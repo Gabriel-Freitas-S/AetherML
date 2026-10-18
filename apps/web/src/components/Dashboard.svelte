@@ -1,7 +1,6 @@
 <!-- apps/web/src/components/Dashboard.svelte — Painel reativo: estação ativa (salva > GPS > manual) atualiza hero, cards, mapa, gráfico e XAI -->
 <script lang="ts">
 import { globalIQAr } from "@aetherml/core-iqar";
-import { nearestStation } from "@aetherml/geo";
 import {
 	AetherInferenceClient,
 	type SaabasContribution,
@@ -223,13 +222,16 @@ $effect(() => {
 	const client = getInferenceClient();
 	if (!client) return;
 
+	const plainFeatures = Array.from($state.snapshot(curr.features) as number[]);
+	const targetPollutant = String($state.snapshot(curr.primary) ?? "pm25");
+
 	client
 		.waitForReady()
 		.then(() =>
 			client.explain({
 				stationId: stId,
-				features: curr.features as number[],
-				target: curr.primary ?? "pm25",
+				features: plainFeatures,
+				target: targetPollutant,
 			}),
 		)
 		.then((res) => {
@@ -352,15 +354,16 @@ async function fetchLiveOpenMeteoFallback(targetId: string) {
 			effectiveStationsMeta.find((s) => s.id === targetId) ??
 			effectiveStationsMeta[0];
 		if (!st) return;
-		const lat = st.lat ?? st.latitude ?? -20.2764;
-		const lon = st.lon ?? st.longitude ?? -40.2881;
+		const plainSt = $state.snapshot(st);
+		const lat = plainSt.lat ?? plainSt.latitude ?? -20.2764;
+		const lon = plainSt.lon ?? plainSt.longitude ?? -40.2881;
 		const flags: StationFlags = {
-			...st,
-			coastal: Boolean(st.coastal),
-			downwind_tubarao: Boolean(st.downwind_tubarao),
-			bridge_proximity: Boolean(st.bridge_proximity),
-			traffic_heavy: Boolean(st.traffic_heavy),
-			urban_canyon: Boolean(st.urban_canyon),
+			...plainSt,
+			coastal: Boolean(plainSt.coastal),
+			downwind_tubarao: Boolean(plainSt.downwind_tubarao),
+			bridge_proximity: Boolean(plainSt.bridge_proximity),
+			traffic_heavy: Boolean(plainSt.traffic_heavy),
+			urban_canyon: Boolean(plainSt.urban_canyon),
 		};
 
 		let aqHourly: any = null;

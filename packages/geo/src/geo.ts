@@ -28,6 +28,10 @@ export function roundDistanceKm(km: number): number {
 	return Math.round(km * 10) / 10;
 }
 
+/**
+ * Localiza a estação mais próxima das coordenadas `(lat, lon)` usando Haversine.
+ * @throws {Error} Quando a lista de estações está vazia ou nenhuma estação possui coordenadas finitas válidas.
+ */
 export function nearestStation(
 	lat: number,
 	lon: number,
@@ -49,6 +53,11 @@ export function nearestStation(
 			best = s;
 		}
 	}
+	if (!Number.isFinite(bestD)) {
+		throw new Error(
+			"Nenhuma estação com coordenadas válidas disponível para localizar a mais próxima.",
+		);
+	}
 	return {
 		station: best,
 		distanceKm: bestD,
@@ -61,8 +70,12 @@ export function getStationCoords(s: any): {
 	latitude: number;
 	longitude: number;
 } {
-	const latitude = Number(s?.latitude ?? s?.lat ?? 0);
-	const longitude = Number(s?.longitude ?? s?.lon ?? 0);
+	const rawLat = s?.latitude ?? s?.lat;
+	const rawLon = s?.longitude ?? s?.lon;
+	const latitude =
+		rawLat === null || rawLat === undefined ? Number.NaN : Number(rawLat);
+	const longitude =
+		rawLon === null || rawLon === undefined ? Number.NaN : Number(rawLon);
 	return { latitude, longitude };
 }
 
@@ -93,12 +106,16 @@ export function resolveActiveStation(
 		Number.isFinite(opts.userLat) &&
 		Number.isFinite(opts.userLon)
 	) {
-		const nearest = nearestStation(opts.userLat, opts.userLon, stations);
-		return {
-			stationId: nearest.station.id,
-			reason: "gps",
-			distanceKm: nearest.roundedDistanceKm,
-		};
+		try {
+			const nearest = nearestStation(opts.userLat, opts.userLon, stations);
+			return {
+				stationId: nearest.station.id,
+				reason: "gps",
+				distanceKm: nearest.roundedDistanceKm,
+			};
+		} catch {
+			// Se nenhuma estação tiver coordenadas válidas, cai para default/fallback
+		}
 	}
 	if (opts?.defaultId && ids.has(opts.defaultId)) {
 		return { stationId: opts.defaultId, reason: "default", distanceKm: null };

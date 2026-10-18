@@ -162,3 +162,55 @@ test("dominantConcentration devolve null quando o poluente não está no bloco o
 	assert.equal(dominantConcentration(null, "pm25"), null);
 	assert.equal(dominantConcentration({ pm25: null }, "pm25"), null);
 });
+
+test("getShellStaticProps mantém stationsMeta em todas as rotas mas escopa initialBundle, initialMapStations e evalData por seção", async () => {
+	const { getShellStaticProps } = await import("../src/lib/shell-props.ts");
+
+	const agora = getShellStaticProps("agora");
+	assert.equal(agora.stationsMeta.length, 9);
+	assert.ok(agora.initialBundle !== null, "agora deve incluir initialBundle");
+	assert.equal(
+		agora.initialMapStations.length,
+		9,
+		"agora deve incluir initialMapStations",
+	);
+	assert.equal(agora.evalData, null, "agora não deve embutir evalData");
+
+	const mapa = getShellStaticProps("mapa");
+	assert.equal(mapa.stationsMeta.length, 9);
+	assert.equal(mapa.initialBundle, null, "mapa não deve embutir initialBundle");
+	assert.equal(
+		mapa.initialMapStations.length,
+		9,
+		"mapa deve incluir initialMapStations",
+	);
+	assert.equal(mapa.evalData, null, "mapa não deve embutir evalData");
+
+	const precisao = getShellStaticProps("precisao");
+	assert.equal(precisao.stationsMeta.length, 9);
+	assert.equal(
+		precisao.initialBundle,
+		null,
+		"precisao não deve embutir initialBundle",
+	);
+	assert.equal(
+		precisao.initialMapStations.length,
+		0,
+		"precisao não deve embutir initialMapStations",
+	);
+	assert.ok(precisao.evalData !== null, "precisao deve incluir evalData");
+
+	const confronto = getShellStaticProps("confronto");
+	assert.equal(confronto.stationsMeta.length, 9);
+	assert.equal(
+		confronto.initialBundle,
+		null,
+		"confronto não deve embutir initialBundle",
+	);
+	assert.equal(
+		confronto.initialMapStations.length,
+		0,
+		"confronto não deve embutir initialMapStations",
+	);
+	assert.equal(confronto.evalData, null, "confronto não deve embutir evalData");
+});

@@ -82,6 +82,9 @@ test("canCacheModelResponse recusa respostas HTML (SPA fallback 200) para não e
 	assert.equal(canCacheModelResponse(mjsRes), true);
 });
 
+import fs from "node:fs";
+import path from "node:path";
+
 test("isDashboardNavigationPath identifica todas as rotas que podem usar o shell '/' offline", () => {
 	assert.equal(isDashboardNavigationPath("/"), true);
 	assert.equal(isDashboardNavigationPath("/mapa"), true);
@@ -91,4 +94,21 @@ test("isDashboardNavigationPath identifica todas as rotas que podem usar o shell
 	assert.equal(isDashboardNavigationPath("/comparacao-previsao"), true);
 	assert.equal(isDashboardNavigationPath("/docs/arquitetura"), false);
 	assert.equal(isDashboardNavigationPath("/estacao/ramqar_camburi"), false);
+});
+
+test("todo arquivo .wasm em apps/web/public/wasm possui um loader .mjs irmão (guarda ONNX Runtime Web)", () => {
+	const wasmDir = path.resolve(import.meta.dirname, "../public/wasm");
+	const entries = fs.readdirSync(wasmDir);
+	const wasmFiles = entries.filter((f) => f.endsWith(".wasm"));
+	assert.ok(
+		wasmFiles.length > 0,
+		"Deve haver pelo menos um arquivo .wasm em public/wasm",
+	);
+	for (const wasmFile of wasmFiles) {
+		const expectedMjs = wasmFile.replace(/\.wasm$/, ".mjs");
+		assert.ok(
+			entries.includes(expectedMjs),
+			`Arquivo ${wasmFile} não possui loader irmão ${expectedMjs} em public/wasm`,
+		);
+	}
 });

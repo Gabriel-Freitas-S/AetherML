@@ -10,7 +10,7 @@ import Layout from "../layouts/Layout.astro";
 import { getShellStaticProps } from "../lib/shell-props";
 
 const HOLDOUT_HOURS = comparisonData.holdout.hours;
-const shellProps = getShellStaticProps();
+const shellProps = getShellStaticProps("confronto");
 ---
 
 <Layout

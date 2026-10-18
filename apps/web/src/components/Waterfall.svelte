@@ -63,7 +63,7 @@ onMount(() => {
 				.then(() =>
 					c.explain({
 						stationId,
-						features,
+						features: Array.from($state.snapshot(features)),
 						target: primaryPollutant.toLowerCase(),
 					}),
 				)
@@ -159,7 +159,7 @@ function getNaturalLanguageExplanation(item: SaabasContribution): string {
       <span class="i-ph-chart-bar-horizontal-bold inline-block w-6 h-6 text-slate-500 mb-1.5"></span>
       <p class="text-xs font-semibold text-slate-800">Decomposição Saabas sob demanda</p>
       <p class="text-[11px] text-slate-600 mt-1 max-w-md mx-auto leading-relaxed">
-        As contribuições físicas por árvore (<span class="font-mono">Φᵢ</span>) são calculadas pelo motor ONNX/WASM quando o vetor completo de 25 variáveis está ativo no painel principal.
+        As contribuições físicas por árvore (<span class="font-mono">Φᵢ</span>) são calculadas pelo motor ONNX/WASM quando o vetor completo de 30 variáveis está ativo no painel principal.
       </p>
     </div>
   {:else}
