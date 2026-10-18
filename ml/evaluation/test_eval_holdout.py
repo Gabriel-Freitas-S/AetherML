@@ -9,6 +9,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from ml.evaluation.eval_holdout import (
+    _holdout_window,
     band_index,
     collect_persistence,
     iqar_persistence_metrics,
@@ -87,6 +88,22 @@ def test_skill_score():
     assert skill_score(0.92, 3.31) == 0.7221
 
 
+def test_holdout_window_trims_post_cutoff():
+    # 5 timestamps: 3 até o cutoff e 2 horas pós-cutoff
+    times = [
+        "2026-10-01T10:00",
+        "2026-10-01T11:00",
+        "2026-10-01T12:00",
+        "2026-10-01T13:00",  # pós-cutoff
+        "2026-10-01T14:00",  # pós-cutoff
+    ]
+    cutoff = "2026-10-01T12"
+    idx = _holdout_window(times, cutoff, hours=3)
+    # A janela das últimas 3 horas <= cutoff deve ser exatamente [0, 1, 2]
+    assert idx == [0, 1, 2]
+    assert 3 not in idx and 4 not in idx
+
+
 def test_collect_persistence():
     # Raw sintético (2 estações: st1 ~40h, st2 ~5h)
     times1 = [f"2026-10-01T{h:02d}:00" for h in range(24)] + [
@@ -118,12 +135,75 @@ def test_collect_persistence():
         assert yt == [35.0, 36.0, 37.0, 38.0, 39.0]
         assert yp == [11.0, 12.0, 13.0, 14.0, 15.0]
 
-    # iqar_persistence_metrics também não quebra com st2
-    iq_res = iqar_persistence_metrics(raw, cutoff="2026-10-02T15", hours=5, lag=24)
-    assert "mae_index" in iq_res
-    assert "within_5pts" in iq_res
-    assert "within_10pts" in iq_res
-    assert "class_accuracy" in iq_res
+
+def test_iqar_persistence_metrics_empty():
+    # Sem histórico ou estações vazias -> campos None e n: 0
+    empty_raw = {"stations": {}}
+    res = iqar_persistence_metrics(empty_raw, cutoff="2026-10-01T12", hours=5, lag=1)
+    assert res["n"] == 0
+    assert res["mae_index"] is None
+    assert res["within_5pts"] is None
+    assert res["within_10pts"] is None
+    assert res["class_accuracy"] is None
+
+
+def test_iqar_persistence_metrics_stationary():
+    # Caso estacionário com lag=1: concentrações constantes nos 5 alvos
+    # IQAr esperado: idêntico em todas as horas -> mae_index 0.0, class_accuracy 1.0
+    times = [f"2026-10-01T{h:02d}:00" for h in range(6)]
+    # PM2.5 = 15.0 (IQAr 40, Boa), outros 0
+    aq = {
+        "time": times,
+        "pm2_5": [15.0] * 6,
+        "pm10": [20.0] * 6,
+        "ozone": [30.0] * 6,
+        "nitrogen_dioxide": [20.0] * 6,
+        "sulphur_dioxide": [10.0] * 6,
+    }
+    raw = {"stations": {"st1": {"meta": {}, "aq_hourly": aq}}}
+    res = iqar_persistence_metrics(raw, cutoff="2026-10-01T05", hours=5, lag=1)
+    assert res["n"] == 5
+    assert res["mae_index"] == 0.0
+    assert res["class_accuracy"] == 1.0
+    assert res["within_5pts"] == 1.0
+    assert res["within_10pts"] == 1.0
+
+
+def test_iqar_persistence_metrics_step():
+    # Caso com degrau e 2h pós-cutoff (testa trim e direção obs_true / obs_pred)
+    # Timestamps 0..4 (<= cutoff 04:00) e 5..6 (> cutoff 04:00, pós-cutoff)
+    times = [f"2026-10-01T{h:02d}:00" for h in range(7)]
+    # PM2.5:
+    # h0: 15.0 (IQAr 40, Boa)
+    # h1: 15.0 (IQAr 40, Boa)
+    # h2: 15.0 (IQAr 40, Boa)
+    # h3: 25.0 (IQAr 80, Moderada) <- degrau ocorre aqui
+    # h4: 25.0 (IQAr 80, Moderada)
+    # h5, h6 (pós-cutoff): 500.0 (Péssima, NÃO deve entrar na janela)
+    pm25_vals = [15.0, 15.0, 15.0, 25.0, 25.0, 500.0, 500.0]
+    aq = {
+        "time": times,
+        "pm2_5": pm25_vals,
+        "pm10": [0.0] * 7,
+        "ozone": [0.0] * 7,
+        "nitrogen_dioxide": [0.0] * 7,
+        "sulphur_dioxide": [0.0] * 7,
+    }
+    raw = {"stations": {"st1": {"meta": {}, "aq_hourly": aq}}}
+    # cutoff = "2026-10-01T04", hours = 3 -> janela de índices: [2, 3, 4]
+    # Com lag = 1:
+    # i=2: true=h2 (40, Boa), pred=h1 (40, Boa) -> diff=0, match=True
+    # i=3: true=h3 (80, Mod), pred=h2 (40, Boa) -> diff=40, match=False
+    # i=4: true=h4 (80, Mod), pred=h3 (80, Mod) -> diff=0, match=True
+    # diffs = [0, 40, 0] -> mae_index = 40/3 = 13.33
+    # within_5pts = 2/3 = 0.6667, within_10pts = 2/3 = 0.6667
+    # class_accuracy = 2/3 = 0.6667
+    res = iqar_persistence_metrics(raw, cutoff="2026-10-01T04", hours=3, lag=1)
+    assert res["n"] == 3
+    assert res["mae_index"] == 13.33
+    assert res["within_5pts"] == 0.6667
+    assert res["within_10pts"] == 0.6667
+    assert res["class_accuracy"] == 0.6667
 
 
 if __name__ == "__main__":
@@ -132,6 +212,11 @@ if __name__ == "__main__":
     test_regression_metrics_known_values()
     test_persistence_pairs()
     test_skill_score()
+    test_holdout_window_trims_post_cutoff()
     test_collect_persistence()
-    print("[OK] test_eval_holdout: 6/6 verdes")
+    test_iqar_persistence_metrics_empty()
+    test_iqar_persistence_metrics_stationary()
+    test_iqar_persistence_metrics_step()
+    print("[OK] test_eval_holdout: 10/10 verdes")
+
 

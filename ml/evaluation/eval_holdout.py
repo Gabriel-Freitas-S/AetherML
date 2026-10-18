@@ -143,9 +143,23 @@ def _meteo_row(met, gi):
     }
 
 
+def _holdout_window(times: list[str], cutoff: str, hours: int) -> list[int]:
+    """Retorna os índices das últimas `hours` horas com timestamp <= `cutoff`."""
+    if not times:
+        return []
+    matching = [
+        i for i, ts in enumerate(times) if not cutoff or ts[:13] <= cutoff
+    ]
+    if not matching:
+        return []
+    e_idx = max(matching)
+    return list(range(e_idx - hours + 1, e_idx + 1))
+
+
 def persistence_pairs(
     series: list, idx: list[int], lag: int
 ) -> tuple[list, list]:
+    """Extrai pares (y_true, y_pred) onde pred é o valor de `lag` posições atrás."""
     y_true, y_pred = [], []
     n = len(series)
     for i in idx:
@@ -157,19 +171,14 @@ def persistence_pairs(
 
 
 def collect_persistence(raw: dict, cutoff: str, hours: int, lag: int) -> dict:
+    """Coleta pares de persistência de todos os alvos sobre a janela do holdout."""
     pairs = {t: ([], []) for t in AQ_KEYS}
     for _sid, entry in raw.get("stations", {}).items():
         aq = entry.get("aq_hourly", {})
         times = aq.get("time", [])
-        if not times:
+        idx = _holdout_window(times, cutoff, hours)
+        if not idx:
             continue
-        matching = [
-            i for i, ts in enumerate(times) if not cutoff or ts[:13] <= cutoff
-        ]
-        if not matching:
-            continue
-        e_idx = max(matching)
-        idx = list(range(e_idx - hours + 1, e_idx + 1))
         for t, col in AQ_KEYS.items():
             if col in aq:
                 yt, yp = persistence_pairs(aq[col], idx, lag)
@@ -181,6 +190,7 @@ def collect_persistence(raw: dict, cutoff: str, hours: int, lag: int) -> dict:
 def skill_score(
     mae_model: float | None, mae_baseline: float | None
 ) -> float | None:
+    """Calcula o skill score (1 - MAE_modelo / MAE_baseline) contra um baseline."""
     if mae_model is None or mae_baseline is None:
         return None
     if mae_baseline <= 0:
@@ -191,20 +201,15 @@ def skill_score(
 def iqar_persistence_metrics(
     raw: dict, cutoff: str, hours: int, lag: int
 ) -> dict:
+    """Calcula métricas de concordância do IQAr global sobre o vetor persistido."""
     iqar_true, iqar_pred = [], []
     cls_true, cls_pred = [], []
     for _sid, entry in raw.get("stations", {}).items():
         aq = entry.get("aq_hourly", {})
         times = aq.get("time", [])
-        if not times:
+        idx = _holdout_window(times, cutoff, hours)
+        if not idx:
             continue
-        matching = [
-            i for i, ts in enumerate(times) if not cutoff or ts[:13] <= cutoff
-        ]
-        if not matching:
-            continue
-        e_idx = max(matching)
-        idx = list(range(e_idx - hours + 1, e_idx + 1))
         for gi in idx:
             if gi - lag < 0 or gi >= len(times):
                 continue
@@ -227,10 +232,11 @@ def iqar_persistence_metrics(
     n = len(iqar_true)
     if n == 0:
         return {
-            "mae_index": 0.0,
-            "within_5pts": 0.0,
-            "within_10pts": 0.0,
-            "class_accuracy": 0.0,
+            "mae_index": None,
+            "within_5pts": None,
+            "within_10pts": None,
+            "class_accuracy": None,
+            "n": 0,
         }
     idx_diff = np.abs(np.array(iqar_true) - np.array(iqar_pred))
     class_acc = sum(1 for a, b in zip(cls_true, cls_pred) if a == b) / n
@@ -239,6 +245,7 @@ def iqar_persistence_metrics(
         "within_5pts": round(float(np.mean(idx_diff <= 5)), 4),
         "within_10pts": round(float(np.mean(idx_diff <= 10)), 4),
         "class_accuracy": round(class_acc, 4),
+        "n": n,
     }
 
 
@@ -268,11 +275,8 @@ def run_backtest(
         flags = entry["meta"]
         aq, met = entry["aq_hourly"], entry["meteo_hourly"]
         times = aq["time"]
-        end_idx = max(
-            i for i, ts in enumerate(times) if not cutoff or ts[:13] <= cutoff
-        )
         # últimas 168h de passado = holdout (fora do treino honestamente)
-        h_idx = list(range(end_idx - HOLDOUT_HOURS + 1, end_idx + 1))
+        h_idx = _holdout_window(times, cutoff, HOLDOUT_HOURS)
         holdout_start = times[h_idx[0]]
         holdout_end = times[h_idx[-1]]
 
@@ -424,7 +428,7 @@ def run_backtest(
         },
         "lag_features": {
             "source": "mesmo produto CAMS",
-            "note": "Lags de poluente (1h/24h) veem do próprio alvo; o skill mede correção/continuidade sobre o CAMS, não previsão de rua.",
+            "note": "Lags de poluente (lags de poluente da ordem de features; 1h e 24h na v2) vêm do próprio alvo; o skill mede correção/continuidade sobre o CAMS, não previsão de rua.",
         },
         "in_situ": {
             "available": False,
@@ -463,7 +467,7 @@ def run_backtest(
     }
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f)
+        json.dump(payload, f, allow_nan=False)
     print(
         f"[eval] classe IQAr={class_acc:.1%} | MAE idx={payload['iqar']['mae_index']} → {out_path}"
     )

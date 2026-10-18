@@ -39,7 +39,9 @@ Como os números exibidos no app são produzidos, de onde vêm os dados e qual o
 | v2026.38.2 | Dados reais, 25 feats | 80,8% | ±8,2 | 3,04 / 0,09 |
 | v2026.38.3 | Holdout honesto (treino sem os 7d) | 80,8% | ±8,2 | 3,04 / 0,09 |
 | v2026.38.4 | Capacidade + pesos + viés | 80,2% | ±8,3 | 3,24 / −0,07 |
-| **v2026.38.5** | **FEATURE_ORDER_V2 (30 feats)** | — (ver /precisao) | — (ver /precisao) | **0,92 / 0,90** |
+| **v2026.38.5** | **FEATURE_ORDER_V2 (30 feats)** | **96,5%** | **±2,14** | **0,57 / 0,9377** (artefato `model-eval.json` atual) |
+
+> Nota sobre a v2026.38.5: a medição preliminar no primeiro commit do modelo apontava PM2.5 (MAE 0,92 / R² 0,90); após calibração e consolidação no mesmo holdout de 1.512 pontos, os valores consolidados publicados no artefato `model-eval.json` (commit `ffadcde`) são MAE 0,57 µg/m³, R² 0,9377, acerto de faixa IQAr 96,5% e MAE de índice ±2,14.
 
 Experimentos descartados no mesmo holdout (registrados para não repetir): isotonic isolada 77,5%, quantil-α 79,2%, detector binário (AUC 0,93 no valid, recall 0% no holdout — a semana era imprevisível para essas features).
 
