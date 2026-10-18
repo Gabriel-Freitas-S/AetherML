@@ -91,6 +91,9 @@ const IQAR_INPUT: readonly Pollutant[] = ["pm25", "pm10", "o3", "no2", "so2"];
  */
 export const LOOKBACK_HOURS = 3;
 
+/** Limite superior de dias para backfill manual via `POST /ingest?days=N`. */
+export const MAX_BACKFILL_DAYS = 30;
+
 const HOUR_MS = 3_600_000;
 
 // --- SQL --------------------------------------------------------------------
@@ -324,20 +327,56 @@ export interface Station {
 	longitude: number;
 }
 
+export interface OpenMeteoUrlOptions {
+	pastDays?: number;
+	forecastDays?: number;
+}
+
 /** Mesma construção de query do Python: latitude, longitude, timezone=UTC, hourly. */
 export function buildOpenMeteoUrl(
 	base: string,
 	hourly: string,
 	station: { lat: number; lon: number },
+	opts: OpenMeteoUrlOptions = {},
 ): string {
+	const pastDays = opts.pastDays ?? PAST_DAYS;
+	const forecastDays = opts.forecastDays ?? FORECAST_DAYS;
 	const url = new URL(base);
 	url.searchParams.set("latitude", String(station.lat));
 	url.searchParams.set("longitude", String(station.lon));
 	url.searchParams.set("timezone", "UTC");
 	url.searchParams.set("hourly", hourly);
-	url.searchParams.set("past_days", String(PAST_DAYS));
-	url.searchParams.set("forecast_days", String(FORECAST_DAYS));
+	url.searchParams.set("past_days", String(pastDays));
+	url.searchParams.set("forecast_days", String(forecastDays));
 	return url.toString();
+}
+
+export type BackfillDaysParseResult =
+	| { ok: true; days: number | undefined }
+	| { ok: false; error: string };
+
+/**
+ * Valida o parâmetro `?days=N` do disparo manual (`POST /ingest?days=N`).
+ * Ausente (`null`/`undefined`) mantém o modo horário padrão (`LOOKBACK_HOURS`).
+ */
+export function parseBackfillDays(raw: string | null | undefined): BackfillDaysParseResult {
+	if (raw === null || raw === undefined) {
+		return { ok: true, days: undefined };
+	}
+	if (!/^\d+$/.test(raw)) {
+		return {
+			ok: false,
+			error: `Parâmetro 'days' inválido (${JSON.stringify(raw)}): deve ser inteiro entre 1 e ${MAX_BACKFILL_DAYS}.`,
+		};
+	}
+	const days = Number(raw);
+	if (!Number.isInteger(days) || days < 1 || days > MAX_BACKFILL_DAYS) {
+		return {
+			ok: false,
+			error: `Parâmetro 'days' fora do limite (${days}): permitido entre 1 e ${MAX_BACKFILL_DAYS}.`,
+		};
+	}
+	return { ok: true, days };
 }
 
 /**
@@ -379,8 +418,14 @@ async function fetchHourly(
 	vars: string,
 	station: Station,
 	label: string,
+	urlOpts: OpenMeteoUrlOptions = {},
 ): Promise<OpenMeteoHourly> {
-	const url = buildOpenMeteoUrl(base, vars, { lat: station.latitude, lon: station.longitude });
+	const url = buildOpenMeteoUrl(
+		base,
+		vars,
+		{ lat: station.latitude, lon: station.longitude },
+		urlOpts,
+	);
 	const res = await doFetch(url, { headers: { "User-Agent": "AetherML/1.0" } });
 	if (!res.ok) {
 		// Corpo curto e verbatim: o motivo da recusa do Open-Meteo está nele.
@@ -395,6 +440,10 @@ async function fetchHourly(
 export interface IngestOptions {
 	/** Injetável para teste determinístico. Default: agora. */
 	now?: Date;
+	/** Backfill manual em dias (1..MAX_BACKFILL_DAYS): ajusta past_days=days e lookbackHours=days*24. */
+	days?: number;
+	pastDays?: number;
+	forecastDays?: number;
 	lookbackHours?: number;
 	fetchImpl?: typeof fetch;
 	log?: (msg: string) => void;
@@ -425,6 +474,7 @@ async function ingestStation(
 	analysisCutoff: string,
 	doFetch: typeof fetch,
 	logError: (msg: string) => void,
+	urlOpts: OpenMeteoUrlOptions,
 ): Promise<StationReport> {
 	try {
 		const aq = await fetchHourly(
@@ -433,6 +483,7 @@ async function ingestStation(
 			AQ_VARS,
 			station,
 			`${station.id} cams`,
+			urlOpts,
 		);
 		const met = await fetchHourly(
 			doFetch,
@@ -440,6 +491,7 @@ async function ingestStation(
 			METEO_VARS,
 			station,
 			`${station.id} meteo`,
+			urlOpts,
 		);
 
 		const observed: ObservedRow[] = [];
@@ -532,8 +584,19 @@ async function ingestStation(
 }
 
 export async function ingest(env: Env, opts: IngestOptions = {}): Promise<IngestReport> {
+	if (opts.days !== undefined) {
+		if (!Number.isInteger(opts.days) || opts.days < 1 || opts.days > MAX_BACKFILL_DAYS) {
+			throw new Error(
+				`Parâmetro 'days' inválido (${opts.days}): deve ser inteiro entre 1 e ${MAX_BACKFILL_DAYS}.`,
+			);
+		}
+	}
 	const now = opts.now ?? new Date();
-	const window = hourWindow(now, opts.lookbackHours ?? LOOKBACK_HOURS);
+	const pastDays = opts.pastDays ?? opts.days ?? PAST_DAYS;
+	const forecastDays = opts.forecastDays ?? FORECAST_DAYS;
+	const lookbackHours =
+		opts.lookbackHours ?? (opts.days !== undefined ? opts.days * 24 : LOOKBACK_HOURS);
+	const window = hourWindow(now, lookbackHours);
 	const analysisCutoff = dayStart(now);
 	const doFetch = opts.fetchImpl ?? fetch;
 	const log = opts.log ?? ((m: string) => console.log(m));
@@ -547,11 +610,16 @@ export async function ingest(env: Env, opts: IngestOptions = {}): Promise<Ingest
 	const stations: Station[] = stationRows ?? [];
 
 	log(
-		`[ingest] janela ${window.from}..${window.to} UTC · ${stations.length} estações ativas · fonte=${CAMPS_ANALYSIS_SOURCE}|${CAMPS_FORECAST_SOURCE}`,
+		`[ingest] janela ${window.from}..${window.to} UTC · past_days=${pastDays} · ${stations.length} estações ativas · fonte=${CAMPS_ANALYSIS_SOURCE}|${CAMPS_FORECAST_SOURCE}`,
 	);
 
 	const perStation = await Promise.all(
-		stations.map((s) => ingestStation(env, s, window, analysisCutoff, doFetch, logError)),
+		stations.map((s) =>
+			ingestStation(env, s, window, analysisCutoff, doFetch, logError, {
+				pastDays,
+				forecastDays,
+			}),
+		),
 	);
 
 	const failed = perStation.filter((s) => !s.ok);
@@ -576,12 +644,20 @@ export async function ingest(env: Env, opts: IngestOptions = {}): Promise<Ingest
 
 export default {
 	async fetch(req: Request, env: Env): Promise<Response> {
-		// Disparo manual para reprocessar uma janela sem esperar o cron.
+		// Disparo manual para reprocessar uma janela (ou backfill ?days=N) sem esperar o cron.
 		const url = new URL(req.url);
 		if (url.pathname !== "/ingest") {
 			return new Response("ingestion worker — POST /ingest", { status: 404 });
 		}
+		const parsedDays = parseBackfillDays(url.searchParams.get("days"));
+		if (!parsedDays.ok) {
+			return new Response(JSON.stringify({ error: parsedDays.error }, null, 2), {
+				status: 400,
+				headers: { "content-type": "application/json" },
+			});
+		}
 		const report = await ingest(env, {
+			days: parsedDays.days,
 			log: (m) => console.log(m),
 			logError: (m) => console.error(m),
 		});

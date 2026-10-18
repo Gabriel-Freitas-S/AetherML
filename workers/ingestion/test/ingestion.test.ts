@@ -17,6 +17,7 @@ import {
 	FEATURES_SOURCE,
 	IEMA_SENTINEL,
 	LOOKBACK_HOURS,
+	MAX_BACKFILL_DAYS,
 	METEO_URL,
 	METEO_VARS,
 	buildFeaturesUpsert,
@@ -27,7 +28,9 @@ import {
 	hourWindow,
 	ingest,
 	observedRowFrom,
+	parseBackfillDays,
 } from "../src/index.ts";
+import worker from "../src/index.ts";
 import { createSchema, localD1 } from "./d1-local.ts";
 
 // --- fixtures ---------------------------------------------------------------
@@ -583,3 +586,162 @@ test("ingest: falha do batch não deixa a estação pela metade", async () => {
 		local.close();
 	}
 });
+
+// --- 6. Backfill manual (POST /ingest?days=N) -------------------------------
+
+function generateHours(endIso: string, count: number): string[] {
+	const endMs = Math.floor(new Date(endIso).getTime() / 3_600_000) * 3_600_000;
+	const out: string[] = [];
+	for (let i = count - 1; i >= 0; i--) {
+		out.push(`${new Date(endMs - i * 3_600_000).toISOString().slice(0, 13)}:00`);
+	}
+	return out;
+}
+
+test("parseBackfillDays: aceita null/ausente como modo horário padrão e inteiros 1..MAX_BACKFILL_DAYS", () => {
+	assert.equal(MAX_BACKFILL_DAYS, 30);
+	assert.deepEqual(parseBackfillDays(null), { ok: true, days: undefined });
+	assert.deepEqual(parseBackfillDays("1"), { ok: true, days: 1 });
+	assert.deepEqual(parseBackfillDays("7"), { ok: true, days: 7 });
+	assert.deepEqual(parseBackfillDays("30"), { ok: true, days: 30 });
+});
+
+test("parseBackfillDays: rejeita 0, negativos, >30, decimais, strings vazias e lixo", () => {
+	for (const bad of ["", " ", "0", "-1", "-7", "31", "90", "3.5", "7d", "abc", "NaN", "Infinity"]) {
+		const res = parseBackfillDays(bad);
+		assert.equal(res.ok, false, `deveria rejeitar days=${JSON.stringify(bad)}`);
+	}
+});
+
+test("buildOpenMeteoUrl: parametriza past_days e forecast_days quando fornecidos", () => {
+	const url = new URL(
+		buildOpenMeteoUrl(
+			AQ_URL,
+			AQ_VARS,
+			{ lat: -20.3196, lon: -40.337 },
+			{ pastDays: 7, forecastDays: 1 },
+		),
+	);
+	assert.equal(url.searchParams.get("past_days"), "7");
+	assert.equal(url.searchParams.get("forecast_days"), "1");
+});
+
+test("ingest com days=7: busca past_days=7, recorta 168h, respeita 1 subrequest/estação/serviço e separa reanalysis de forecast", async () => {
+	const local = localD1(createSchema());
+	const requestedUrls: string[] = [];
+	try {
+		const hours7d = generateHours(NOW.toISOString(), 7 * 24 + 24);
+		const baseFetch = fakeOpenMeteo(hours7d);
+		const spyFetch = (async (input: string) => {
+			requestedUrls.push(String(input));
+			return baseFetch(input);
+		}) as unknown as typeof fetch;
+
+		const report = await ingest(
+			{ DB: local.db },
+			{ now: NOW, days: 7, fetchImpl: spyFetch, ...SILENT },
+		);
+
+		assert.equal(report.failed, 0);
+		assert.equal(report.from, "2026-09-25T14:00");
+		assert.equal(report.to, "2026-10-02T13:00");
+		assert.equal(report.observedRows, 9 * 168);
+		assert.equal(report.featureRows, 9 * 168);
+
+		// 9 estações × 2 serviços (AQ + Meteo) = 18 subrequests no total
+		assert.equal(requestedUrls.length, 18);
+		for (const u of requestedUrls) {
+			const parsed = new URL(u);
+			assert.equal(parsed.searchParams.get("past_days"), "7");
+			assert.equal(parsed.searchParams.get("forecast_days"), "1");
+		}
+
+		// Horas anteriores a dayStart(NOW) ("2026-10-02T00:00") → reanalysis (154h)
+		// Horas de hoje ("2026-10-02T00:00".."2026-10-02T13:00") → forecast (14h)
+		const bySource = await local.db
+			.prepare(
+				"SELECT source, COUNT(*) n FROM observed_pollutants GROUP BY source ORDER BY source",
+			)
+			.all<{ source: string; n: number }>();
+		assert.deepEqual(
+			bySource.results.map((r) => ({ source: r.source, n: r.n })),
+			[
+				{ source: CAMPS_FORECAST_SOURCE, n: 9 * 14 },
+				{ source: CAMPS_ANALYSIS_SOURCE, n: 9 * 154 },
+			],
+		);
+
+		// Idempotência: rodar backfill de 7d novamente não duplica linhas
+		await ingest({ DB: local.db }, { now: NOW, days: 7, fetchImpl: spyFetch, ...SILENT });
+		const totalAfter = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
+			.first<{ n: number }>();
+		assert.equal(totalAfter?.n, 9 * 168);
+	} finally {
+		local.close();
+	}
+});
+
+test("ingest: rejeita days fora do intervalo 1..MAX_BACKFILL_DAYS", async () => {
+	const local = localD1(createSchema());
+	try {
+		for (const bad of [0, -2, 31, 1.5, Number.NaN]) {
+			await assert.rejects(
+				() => ingest({ DB: local.db }, { now: NOW, days: bad, fetchImpl: fakeOpenMeteo(WINDOW_HOURS), ...SILENT }),
+				/days/,
+			);
+		}
+	} finally {
+		local.close();
+	}
+});
+
+test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /ingest?days=2 executa backfill", async () => {
+	const local = localD1(createSchema());
+	const origFetch = globalThis.fetch;
+	const origLog = console.log;
+	const origErr = console.error;
+	try {
+		for (const q of ["days=0", "days=31", "days=-1", "days=abc", "days="]) {
+			const res = await worker.fetch(
+				new Request(`https://aetherml-ingestion.local/ingest?${q}`, { method: "POST" }),
+				{ DB: local.db },
+			);
+			assert.equal(res.status, 400, `esperava 400 para ?${q}`);
+			const body = (await res.json()) as { error?: string };
+			assert.match(body.error ?? "", /days/i);
+		}
+		const countAfterBad = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
+			.first<{ n: number }>();
+		assert.equal(countAfterBad?.n, 0, "requisição 400 não pode tocar no D1");
+
+		const requestedUrls: string[] = [];
+		const hours2d = generateHours(new Date().toISOString(), 2 * 24 + 24);
+		const baseFetch = fakeOpenMeteo(hours2d);
+		globalThis.fetch = (async (input: string) => {
+			requestedUrls.push(String(input));
+			return baseFetch(input);
+		}) as unknown as typeof fetch;
+		console.log = () => {};
+		console.error = () => {};
+
+		const okRes = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest?days=2", { method: "POST" }),
+			{ DB: local.db },
+		);
+		assert.equal(okRes.status, 200);
+		const report = (await okRes.json()) as { observedRows: number; featureRows: number; failed: number };
+		assert.equal(report.failed, 0);
+		assert.equal(report.observedRows, 9 * 48);
+		assert.equal(report.featureRows, 9 * 48);
+		assert.equal(requestedUrls.length, 18);
+		assert.equal(new URL(requestedUrls[0]).searchParams.get("past_days"), "2");
+	} finally {
+		globalThis.fetch = origFetch;
+		console.log = origLog;
+		console.error = origErr;
+		local.close();
+	}
+});
+
