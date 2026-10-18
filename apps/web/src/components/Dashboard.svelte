@@ -138,9 +138,10 @@ const stationsList = $derived.by(() => {
 			iqar: res.iqar,
 			classification: res.classification,
 			primary: res.primary,
-			// O pin do mapa carrega o número que o IQAr inteiro esconde: em
-			// horários calmos o contraste espacial real é de décimos de µg/m³ e o
-			// arredondamento da classificação o apaga.
+			// O pin do mapa exibe a concentração prevista em µg/m³: como o fundo de
+			// poluentes vem da grade regional CAMS (~40 km) + correção local de meteo,
+			// a variação entre estações hoje é <= ~0,3 µg/m³ (7 curvas p/ 9 estações);
+			// a diferenciação real por estação virá com dados in-situ (MOS).
 			concentration: dominantConcentration(picked.point.observed, res.primary),
 		};
 	});

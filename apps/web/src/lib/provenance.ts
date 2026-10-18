@@ -52,8 +52,8 @@ export function describeOrigin(
 				? "Modelo LightGBM (histórico)"
 				: "Modelo LightGBM (previsão)",
 			detail: isStale
-				? "Histórico do modelo do projeto. Não são medições de sensor."
-				: "Concentrações previstas pelo modelo do projeto. Não são medições de sensor.",
+				? "Histórico do modelo do projeto (previsão regional CAMS ~40 km + correção local de meteo; diferenciação por estação virá com in-situ/MOS). Não são medições de sensor."
+				: "Concentrações previstas pelo modelo do projeto (previsão regional CAMS ~40 km + correção local de meteo; diferenciação por estação virá com in-situ/MOS). Não são medições de sensor.",
 			isMl: true,
 		};
 	}

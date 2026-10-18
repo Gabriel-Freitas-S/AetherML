@@ -138,7 +138,7 @@ function iqarIcon(cls?: string): string {
           <span>{currentPoint.classification}</span>
         </span>
         <div class="text-slate-500 text-[11px] mt-1">Crítico: {currentPoint.primary.toUpperCase()}</div>
-        <div class="text-slate-400 text-[9px] mt-0.5 uppercase tracking-wider font-semibold">Estimativa horária (CONAMA 491 exige médias móveis 24h/8h)</div>
+        <div class="text-slate-400 text-[9px] mt-0.5 uppercase tracking-wider font-semibold">Previsão regional CAMS + correção local de meteo (CONAMA 491 exige médias móveis 24h/8h; diferenciação por estação virá com in-situ/MOS)</div>
       </div>
     </div>
   </div>
@@ -210,8 +210,12 @@ function iqarIcon(cls?: string): string {
 
       <div class="mt-6 pt-4 border-t border-slate-200 text-xs text-slate-500 space-y-2">
         <div class="flex justify-between">
-          <span>Fonte Primária de Dados:</span>
-          <strong class="text-slate-700">IEMA / RAMQAr</strong>
+          <span>Base de Previsão Atual:</span>
+          <strong class="text-slate-700">CAMS Regional (~40 km) + Meteo Local</strong>
+        </div>
+        <div class="flex justify-between">
+          <span>Calibração por Estação (MOS):</span>
+          <strong class="text-amber-700 font-mono">Aguardando in-situ IEMA</strong>
         </div>
         <div class="flex justify-between">
           <span>Cache DB-First:</span>
