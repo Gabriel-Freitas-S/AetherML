@@ -68,6 +68,14 @@ CAMS_NOT_REFERENCE_CAVEAT = (
     "efeito do piso de no2 e da calibração, nada sobre erro de previsão. O "
     "erro honesto está no holdout (comparison-data.json)."
 )
+SPATIAL_CAVEAT = (
+    "Variância espacial limitada na fonte: as 8 estações centrais da RMGV "
+    "caem no mesmo pixel CAMS (~40 km, correlação 1,000 na série bruta de AQ) "
+    "e formam apenas 7 curvas distintas de ML para 9 estações (camburi == paul "
+    "e ibes == vila_velha_fundo idênticos; MAD par-a-par de PM2,5 <= ~0,3 µg/m³). "
+    "A previsão atual combina fundo regional CAMS + correção local de meteo; "
+    "a diferenciação real por estação virá com dados in-situ do IEMA (MOS)."
+)
 
 
 def _dt(iso: str) -> datetime:
@@ -102,6 +110,7 @@ def no2_caveats(cal: dict, stations: list) -> list:
         f"abaixo do piso de {floor} µg/m³ (medido): o corte esconde massa de concentração "
         f"que a fonte reporta, não só ruído numérico.",
         CAMS_NOT_REFERENCE_CAVEAT,
+        SPATIAL_CAVEAT,
     ]
 
 

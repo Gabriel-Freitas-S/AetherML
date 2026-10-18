@@ -142,7 +142,7 @@ function buildMarkers() {
 						? ""
 						: `<div class="aq-pop-conc"><span>${unit}</span><strong>${conc}</strong><span>µg/m³</span></div>`
 				}
-        <p class="aq-pop-note">Concentração do poluente dominante na hora do índice. Não é uma faixa: a faixa é o IQAr acima.</p>
+        <p class="aq-pop-note">Concentração do poluente dominante na hora do índice (previsão regional CAMS + correção local de meteo; diferenciação por estação virá com in-situ/MOS).</p>
         <a class="aq-pop-link" href="/estacao/${s.id}">Ver diagnóstico completo →</a>
       </div>`,
 			{ closeButton: false, offset: [0, -6] },
@@ -281,7 +281,7 @@ $effect(() => {
         <span class="w-2 h-2 rounded-full bg-sky-600"></span>
         Rede RAMQAr (IEMA/ES)
       </div>
-      <div class="text-slate-500 text-[11px] mt-0.5">9 estações · IQAr CONAMA 491</div>
+      <div class="text-slate-500 text-[11px] mt-0.5">9 estações · CAMS regional + meteo local (MOS in-situ pendente)</div>
       <!-- Seletor de basemap CARTO. `min-h-[32px]` medido a 360px entregava um
            alvo de toque de 32px — o único controle do produto abaixo da norma de
            44px (nav, abas, seletor de estação e opções de poluente já são

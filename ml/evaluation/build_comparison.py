@@ -62,6 +62,14 @@ CAMS_CAVEAT = (
     "independente: o que se mede aqui é quanto o modelo se aproxima da "
     "persistência do próprio CAMS ao longo de 1h, com lags reais."
 )
+SPATIAL_CAVEAT = (
+    "Variância espacial limitada na fonte: as 8 estações centrais da RMGV "
+    "caem no mesmo pixel CAMS (~40 km, correlação 1,000 na série bruta de AQ) "
+    "e formam apenas 7 curvas distintas de ML para 9 estações (camburi == paul "
+    "e ibes == vila_velha_fundo idênticos; MAD par-a-par de PM2,5 <= ~0,3 µg/m³). "
+    "A previsão atual combina fundo regional CAMS + correção local de meteo; "
+    "a diferenciação real por estação virá com dados in-situ do IEMA (MOS)."
+)
 
 
 def no2_caveats(cal: dict, stations: list) -> list:
@@ -85,6 +93,7 @@ def no2_caveats(cal: dict, stations: list) -> list:
         f"piso operacional de {floor} µg/m³ — por construção o modelo superestima "
         "no2 quando a concentração real é baixa.",
         CAMS_CAVEAT,
+        SPATIAL_CAVEAT,
     ]
 
 

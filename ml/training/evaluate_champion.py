@@ -64,6 +64,16 @@ def _meteo_row(met: Dict[str, Any], gi: int) -> Dict[str, Any]:
     }
 
 
+def _resolve_station_holdout_series(
+    entry: Dict[str, Any], required_min: int
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    aq = entry.get("aq_hourly", {})
+    met = entry.get("meteo_hourly", {})
+    if len(aq.get("time", [])) < required_min and entry.get("cams_aq_hourly"):
+        return entry["cams_aq_hourly"], entry.get("cams_meteo_hourly", met)
+    return aq, met
+
+
 def extract_holdout_from_raw(
     raw: Dict[str, Any],
     holdout_hours: int = HOLDOUT_DEFAULT_HOURS,
@@ -83,7 +93,8 @@ def extract_holdout_from_raw(
 
     # Verifica se todas as estações têm dados suficientes
     for st_id, entry in stations.items():
-        aq_times = entry.get("aq_hourly", {}).get("time", [])
+        aq_resolved, _ = _resolve_station_holdout_series(entry, required_min)
+        aq_times = aq_resolved.get("time", [])
         if len(aq_times) < required_min:
             raise ValueError(
                 f"Janela de holdout de {holdout_hours}h não existe nos dados fornecidos: "
@@ -97,8 +108,8 @@ def extract_holdout_from_raw(
 
     for st_id, entry in stations.items():
         flags = entry.get("meta", {})
-        aq = entry.get("aq_hourly", {})
-        met = entry.get("meteo_hourly", {})
+        aq, met = _resolve_station_holdout_series(entry, required_min)
+        insitu_map: Dict[str, Dict[str, Any]] = entry.get("insitu_hourly") or {}
         times = aq.get("time", [])
 
         valid_indices = [
@@ -122,9 +133,14 @@ def extract_holdout_from_raw(
 
         for gi in h_idx:
             ts = times[gi]
+            norm_k = ts.replace("Z", "").replace(" ", "T")[:16]
             # Skip defensivo consistente com build_real_dataset.py
             try:
-                aq_now = {t: aq[AQ_KEYS[t]][gi] for t in TARGETS}
+                if norm_k in insitu_map:
+                    obs_y = insitu_map[norm_k]
+                    aq_now = {t: obs_y.get(t) for t in TARGETS}
+                else:
+                    aq_now = {t: aq[AQ_KEYS[t]][gi] for t in TARGETS}
                 if any(v is None for v in aq_now.values()):
                     raise ValueError(f"Alvo None em {st_id} às {ts}")
 

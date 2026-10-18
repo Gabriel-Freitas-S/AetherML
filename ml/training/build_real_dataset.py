@@ -169,6 +169,11 @@ def _series(hourly: Dict[str, Any]) -> Dict[str, List[Optional[float]]]:
     return out
 
 
+def _norm_ts(ts: str) -> str:
+    """Normaliza timestamp ISO para 'YYYY-MM-DDTHH:MM' para junção exata."""
+    return ts.replace("Z", "").replace(" ", "T")[:16]
+
+
 def build_real_dataset(
     raw_path: str = "ml/data/openmeteo_raw.json",
     out_path: str = "ml/data/train_dataset_real.json",
@@ -177,7 +182,11 @@ def build_real_dataset(
 ) -> Dict[str, Any]:
     """end_cutoff (ISO 'YYYY-MM-DDTHH'): ignora horas de treino após esse
     instante — usado para reservar o holdout fora do treino.
-    order 'v2': 30 features (V1 + 5 lags de 1h)."""
+    order 'v2': 30 features (V1 + 5 lags de 1h).
+    Modo MOS (`target_mode='mos_insitu'`): quando `insitu_hourly` (source='IEMA')
+    está presente, treina com Y=IEMA e X=CAMS+meteo (`cams_aq_hourly` + `cams_meteo_hourly`).
+    Caso contrário (`target_mode='cams_fallback'`), mantém o comportamento atual (Y=CAMS, X=CAMS+meteo).
+    """
     names = FEATURE_NAMES_V2 if order == "v2" else FEATURE_NAMES
     with open(raw_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
@@ -189,26 +198,72 @@ def build_real_dataset(
     # reservado para a previsão 120h — treinar no futuro seria data leakage.
     cutoff = (raw.get("fetched_at") or "")[:13]
 
+    provenance = raw.get("provenance", {})
+    has_insitu = bool(
+        provenance.get("target_mode") == "mos_insitu"
+        or any(entry.get("insitu_hourly") for entry in raw.get("stations", {}).values())
+    )
+    target_mode = "mos_insitu" if has_insitu else "cams_fallback"
+
     for station_id, entry in raw["stations"].items():
         flags = entry["meta"]
-        aq = _series(entry["aq_hourly"])
-        met = _series(entry["meteo_hourly"])
-        n = min(len(aq["time"]), len(met["time"]))
+        insitu_map: Dict[str, Dict[str, Any]] = entry.get("insitu_hourly") or {}
+
+        if target_mode == "mos_insitu":
+            if not insitu_map:
+                # No modo MOS, não mistura alvos CAMS puros em Y
+                continue
+            aq_x = _series(entry.get("cams_aq_hourly") or entry["aq_hourly"])
+            met_x = _series(entry.get("cams_meteo_hourly") or entry["meteo_hourly"])
+            aq_y = None
+        else:
+            aq_d1 = entry["aq_hourly"]
+            met_d1 = entry["meteo_hourly"]
+            # Se o D1 contém apenas uma janela curta (ex.: 168h de backfill) que
+            # ficaria sem horas válidas antes do end_cutoff (holdout), usa a grade
+            # CAMS completa preservada em cams_aq_hourly / cams_meteo_hourly.
+            valid_d1_before_cutoff = [
+                ts
+                for ts in aq_d1.get("time", [])
+                if (not cutoff or ts[:13] <= cutoff)
+                and (not end_cutoff or ts[:13] <= end_cutoff)
+            ]
+            if len(valid_d1_before_cutoff) <= 30 and entry.get("cams_aq_hourly"):
+                aq_x = _series(entry["cams_aq_hourly"])
+                met_x = _series(entry["cams_meteo_hourly"])
+            else:
+                aq_x = _series(aq_d1)
+                met_x = _series(met_d1)
+            aq_y = aq_x
+
+        n = min(len(aq_x["time"]), len(met_x["time"]))
         # buffers p/ forward-fill de lags
         for i in range(n):
             if i < 30:  # precisa de 24h de lag + 6h de pblh
                 continue
-            ts = aq["time"][i]
+            ts = aq_x["time"][i]
             if cutoff and ts[:13] > cutoff:
                 continue  # hora de forecast: fora do treino
             if end_cutoff and ts[:13] > end_cutoff:
                 continue  # reservado ao holdout honesto
+
+            if target_mode == "mos_insitu":
+                norm_k = _norm_ts(ts)
+                if norm_k not in insitu_map:
+                    continue
+                obs_y = insitu_map[norm_k]
+
             try:
-                aq_now = {t: aq[AQ_KEYS[t]][i] for t in TARGETS}
+                if target_mode == "mos_insitu":
+                    aq_now = {t: obs_y.get(t) for t in TARGETS}
+                else:
+                    assert aq_y is not None
+                    aq_now = {t: aq_y[AQ_KEYS[t]][i] for t in TARGETS}
+
                 if any(v is None for v in aq_now.values()):
                     raise ValueError("alvo None")
                 m_now = {
-                    k: met[k][i]
+                    k: met_x[k][i]
                     for k in (
                         "temperature_2m",
                         "relative_humidity_2m",
@@ -222,17 +277,17 @@ def build_real_dataset(
                 if any(v is None for v in m_now.values()):
                     raise ValueError("meteo None")
                 lags = {
-                    "pm25": aq["pm2_5"][i - 24],
-                    "pm10": aq["pm10"][i - 24],
-                    "no2": aq["nitrogen_dioxide"][i - 24],
-                    "o3": aq["ozone"][i - 24],
-                    "pblh6": sum(met["boundary_layer_height"][i - 6 : i]) / 6.0,
+                    "pm25": aq_x["pm2_5"][i - 24],
+                    "pm10": aq_x["pm10"][i - 24],
+                    "no2": aq_x["nitrogen_dioxide"][i - 24],
+                    "o3": aq_x["ozone"][i - 24],
+                    "pblh6": sum(met_x["boundary_layer_height"][i - 6 : i]) / 6.0,
                 }
                 if any(v is None for v in lags.values()):
                     raise ValueError("lag None")
                 lags1 = None
                 if order == "v2":
-                    lags1 = {t: aq[AQ_KEYS[t]][i - 1] for t in LAG1_TARGETS}
+                    lags1 = {t: aq_x[AQ_KEYS[t]][i - 1] for t in LAG1_TARGETS}
                     if any(v is None for v in lags1.values()):
                         raise ValueError("lag1 None")
                 feats = row_to_features(
@@ -245,8 +300,14 @@ def build_real_dataset(
                 skipped += 1
                 continue
 
+    source_desc = (
+        "MOS real: Y=IEMA in-situ (D1 observed_pollutants), X=open-meteo (CAMS + meteorologia)"
+        if target_mode == "mos_insitu"
+        else "open-meteo real (CAMS + meteorologia), proxies determinísticos p/ tráfego/satélite"
+    )
     payload = {
-        "source": "open-meteo real (CAMS + meteorologia), proxies determinísticos p/ tráfego/satélite",
+        "source": source_desc,
+        "target_mode": target_mode,
         "fetched_at": raw.get("fetched_at"),
         "feature_order": order,
         "feature_names": names,
@@ -260,11 +321,12 @@ def build_real_dataset(
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(payload, f)
     print(
-        f"[real:{order}] {len(all_features)} amostras reais ({skipped} puladas) → {out_path}"
+        f"[real:{order}:{target_mode}] {len(all_features)} amostras reais ({skipped} puladas) → {out_path}"
     )
     return {
         "dataset_path": out_path,
         "sample_count": len(all_features),
+        "target_mode": target_mode,
         "feature_names": names,
         "targets": TARGETS,
     }
