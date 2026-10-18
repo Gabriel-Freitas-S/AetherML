@@ -161,6 +161,9 @@ jobs:
             echo "::notice::CLOUDFLARE_API_TOKEN ausente - upload R2 ignorado."
             exit 0
           fi
+          if ! command -v wrangler >/dev/null 2>&1; then
+            npm install -g wrangler@4 || echo "::warning::npm install -g wrangler@4 falhou; usando fallback npx do upload_r2.py"
+          fi
           python3 -m ml.training.upload_r2 upload
           python3 -m ml.training.upload_r2 verify
 
