@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
-const DB_DIR = fileURLToPath(new URL("../../../db/", import.meta.url));
+export const DB_DIR = fileURLToPath(new URL("../../../db/", import.meta.url));
 
 type Bindable = null | number | bigint | string | Uint8Array;
 
@@ -20,9 +20,12 @@ const bindable = (v: unknown): Bindable =>
 /** Cria um SQLite em memória com o schema canônico de `db/migrations`. */
 export function createSchema(): DatabaseSync {
 	const db = new DatabaseSync(":memory:");
-	// Leitura dos DDL versionados; 0002 é o ALTER que adiciona `source`.
+	// Leitura dos DDL versionados: 0001 (init), 0002 (coluna source), 0003 (UNIQUE com source).
 	db.exec(readFileSync(`${DB_DIR}migrations/0001_init.sql`, "utf8"));
 	db.exec(readFileSync(`${DB_DIR}migrations/0002_observed_source.sql`, "utf8"));
+	db.exec(
+		readFileSync(`${DB_DIR}migrations/0003_observed_source_unique.sql`, "utf8"),
+	);
 	db.exec(readFileSync(`${DB_DIR}seed.sql`, "utf8"));
 	return db;
 }

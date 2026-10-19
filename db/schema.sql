@@ -15,8 +15,9 @@ CREATE TABLE IF NOT EXISTS monitoring_stations (
 );
 
 -- 2. Observações Multipoluentes por produto — `source` distingue IEMA (medição oficial
---    in-situ de estação) de Open-Meteo CAMS (reanálise: produto de MODELO, não leitura de
---    estação). Só `source='IEMA'` é ground truth; NULL = origem não registrada.
+--    in-situ de estação) de Open-Meteo CAMS (reanálise/previsão: produto de MODELO).
+--    Coexistem na mesma hora via UNIQUE(station_id, timestamp, source); só `source='IEMA'`
+--    é ground truth in-situ; NULL = origem não registrada.
 CREATE TABLE IF NOT EXISTS observed_pollutants (
     id TEXT PRIMARY KEY,
     station_id TEXT NOT NULL REFERENCES monitoring_stations(id),
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS observed_pollutants (
     primary_pollutant TEXT,
     source TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(station_id, timestamp)
+    UNIQUE(station_id, timestamp, source)
 );
 CREATE INDEX IF NOT EXISTS idx_observed_station_time ON observed_pollutants(station_id, timestamp);
 

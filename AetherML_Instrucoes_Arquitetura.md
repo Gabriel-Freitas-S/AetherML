@@ -213,8 +213,9 @@ CREATE TABLE IF NOT EXISTS observed_pollutants (
     iqar_index INTEGER,                         -- IQAr consolidado (0-300+)
     iqar_classification TEXT,                   -- 'Boa', 'Moderada', 'Ruim', 'Muito Ruim', 'Péssima'
     primary_pollutant TEXT,                     -- Poluente crítico determinante
+    source TEXT,                                -- 'IEMA', 'open-meteo-cams-reanalysis', 'open-meteo-cams-forecast'
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(station_id, timestamp)
+    UNIQUE(station_id, timestamp, source)
 );
 CREATE INDEX IF NOT EXISTS idx_observed_station_time ON observed_pollutants(station_id, timestamp);
 

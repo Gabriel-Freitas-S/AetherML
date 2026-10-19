@@ -36,12 +36,12 @@ export const observedPollutants = sqliteTable(
 		iqarIndex: integer("iqar_index"),
 		iqarClassification: text("iqar_classification"),
 		primaryPollutant: text("primary_pollutant"),
-		// Anulável e SEM default: 'IEMA' só vale para observação oficial in-situ, que ainda não
-		// temos (sem API pública gratuita). Hoje as linhas vêm da reanálise CAMS do Open-Meteo,
-		// que é produto de modelo. DEFAULT 'IEMA' rotularia reanalise como ground truth.
+		// Anulável e SEM default: 'IEMA' identifica observação oficial in-situ (PRODEST/IEMA-ES),
+		// convivendo na mesma hora com 'open-meteo-cams-reanalysis' e 'open-meteo-cams-forecast'
+		// graças a UNIQUE(station_id, timestamp, source) (migration 0003).
 		source: text("source"),
 	},
-	(table) => [unique().on(table.stationId, table.timestamp)],
+	(table) => [unique().on(table.stationId, table.timestamp, table.source)],
 );
 
 export const environmentalFeatures = sqliteTable("environmental_features", {

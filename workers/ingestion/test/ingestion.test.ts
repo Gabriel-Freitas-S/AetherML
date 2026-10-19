@@ -7,6 +7,8 @@
 // local, vive em `live-ingest.test.ts` (opt-in via AETHERML_LIVE=1).
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import {
 	AQ_URL,
@@ -15,23 +17,35 @@ import {
 	CAMPS_FORECAST_SOURCE,
 	CAMPS_TO_COLUMN,
 	FEATURES_SOURCE,
+	IEMA_MAPA_URL,
 	IEMA_SENTINEL,
+	IEMA_STATION_MAP,
 	LOOKBACK_HOURS,
 	MAX_BACKFILL_DAYS,
+	MAX_INSITU_HOURS,
 	METEO_URL,
 	METEO_VARS,
 	buildFeaturesUpsert,
+	buildIemaMapaUpsert,
 	buildObservedUpsert,
 	buildOpenMeteoUrl,
 	dayStart,
 	featuresRowFrom,
 	hourWindow,
+	iemaDataHoraToUtc,
+	iemaIqaToUgM3,
+	iemaRowFromMapa,
 	ingest,
+	ingestInsitu,
 	observedRowFrom,
 	parseBackfillDays,
+	parseIemaPollutant,
+	parseInsituHours,
+	prepareObservedStatement,
+	upsertObservedRows,
 } from "../src/index.ts";
 import worker from "../src/index.ts";
-import { createSchema, localD1 } from "./d1-local.ts";
+import { DB_DIR, createSchema, localD1 } from "./d1-local.ts";
 
 // --- fixtures ---------------------------------------------------------------
 
@@ -73,12 +87,13 @@ function meteo(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-/** Dublê de fetch que devolve o envelope do Open-Meteo com `hours` horas. */
+/** Dublê de fetch que devolve o envelope do Open-Meteo com `hours` horas (e IEMA opcional). */
 function fakeOpenMeteo(
 	hours: string[],
 	overrides: {
 		aq?: Record<string, unknown>;
 		met?: Record<string, unknown>;
+		iema?: unknown[];
 	} = {},
 ): typeof fetch {
 	const n = hours.length;
@@ -105,7 +120,14 @@ function fakeOpenMeteo(
 		...overrides.met,
 	};
 	return (async (input: string) => {
-		const body = String(input).startsWith(AQ_URL) ? aq : met;
+		const url = String(input);
+		if (url.startsWith(IEMA_MAPA_URL)) {
+			return new Response(JSON.stringify(overrides.iema ?? []), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}
+		const body = url.startsWith(AQ_URL) ? aq : met;
 		return new Response(JSON.stringify({ hourly: body }), {
 			status: 200,
 			headers: { "content-type": "application/json" },
@@ -117,11 +139,11 @@ const SILENT = { log: () => {}, logError: () => {} };
 
 // --- 1. SQL do upsert --------------------------------------------------------
 
-test("buildObservedUpsert: usa ON CONFLICT(station_id, timestamp) — a UNIQUE viva", () => {
+test("buildObservedUpsert: usa ON CONFLICT(station_id, timestamp, source) — coexistência por fonte (migration 0003)", () => {
 	assert.match(
 		buildObservedUpsert(),
-		/ON CONFLICT\(station_id, timestamp\) DO UPDATE SET/,
-		"sem ON CONFLICT o 2º tick horário estoura UNIQUE(station_id, timestamp)",
+		/ON CONFLICT\(station_id, timestamp, source\) DO UPDATE SET/,
+		"coexistência CAMS×IEMA exige UNIQUE(station_id, timestamp, source)",
 	);
 });
 
@@ -895,8 +917,9 @@ test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /in
 			const res = await worker.fetch(
 				new Request(`https://aetherml-ingestion.local/ingest?${q}`, {
 					method: "POST",
+					headers: { "X-Ingest-Token": "tok-test" },
 				}),
-				{ DB: local.db },
+				{ DB: local.db, INGEST_TOKEN: "tok-test" },
 			);
 			assert.equal(res.status, 400, `esperava 400 para ?${q}`);
 			const body = (await res.json()) as { error?: string };
@@ -920,8 +943,9 @@ test("worker.fetch: POST /ingest?days=invalid devolve 400 Bad Request e POST /in
 		const okRes = await worker.fetch(
 			new Request("https://aetherml-ingestion.local/ingest?days=2", {
 				method: "POST",
+				headers: { "X-Ingest-Token": "tok-test" },
 			}),
-			{ DB: local.db },
+			{ DB: local.db, INGEST_TOKEN: "tok-test" },
 		);
 		assert.equal(okRes.status, 200);
 		const report = (await okRes.json()) as {
@@ -1010,6 +1034,16 @@ test("worker.fetch: exige X-Ingest-Token (401) quando env.INGEST_TOKEN está con
 		console.log = () => {};
 		console.error = () => {};
 
+		// 0. INGEST_TOKEN não configurado (undefined) → fail-closed (401 mesmo com header)
+		const undefinedSecretRes = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest", {
+				method: "POST",
+				headers: { "X-Ingest-Token": "algum-token" },
+			}),
+			{ DB: local.db },
+		);
+		assert.equal(undefinedSecretRes.status, 401);
+
 		// 1. Sem header X-Ingest-Token → 401
 		const missingRes = await worker.fetch(
 			new Request("https://aetherml-ingestion.local/ingest", {
@@ -1092,8 +1126,9 @@ test("worker.fetch: devolve 502 Bad Gateway quando todas as estações falham e 
 		const res = await worker.fetch(
 			new Request("https://aetherml-ingestion.local/ingest", {
 				method: "POST",
+				headers: { "X-Ingest-Token": "tok-test" },
 			}),
-			{ DB: local.db },
+			{ DB: local.db, INGEST_TOKEN: "tok-test" },
 		);
 		assert.equal(res.status, 502);
 		const report = (await res.json()) as {
@@ -1109,6 +1144,804 @@ test("worker.fetch: devolve 502 Bad Gateway quando todas as estações falham e 
 			.prepare("SELECT COUNT(*) n FROM observed_pollutants")
 			.first<{ n: number }>();
 		assert.equal(obsCount?.n, 0);
+	} finally {
+		globalThis.fetch = origFetch;
+		console.log = origLog;
+		console.error = origErr;
+		local.close();
+	}
+});
+
+// --- 7. Fase 2: Ingestão IEMA em tempo real (coexistência + /api/mapa + /ingest/insitu) ---
+
+const IEMA_MAPA_FIXTURE = [
+	{
+		IdEstacao: 1,
+		Descricao: "EMQAr - RGV1",
+		Localizacao: "Laranjeiras",
+		DataHora: "2026-10-02T10:00:00", // 10:00 BRT = 13:00 UTC
+		Iqa: 10.02736,
+		Valor: 4.9434334,
+		Poluente: "Ozônio",
+		Faixa: "Boa",
+	},
+	{
+		IdEstacao: 2,
+		Descricao: "EMQAr - RGV2",
+		Localizacao: "Carapina",
+		DataHora: "0001-01-01T00:00:00", // offline sentinel
+		Iqa: 0.0,
+		Valor: 0.0,
+		Poluente: null,
+		Faixa: null,
+	},
+	{
+		IdEstacao: 3,
+		Descricao: "EMQAr - RGV3",
+		Localizacao: "Jardim Camburi",
+		DataHora: "2026-10-02T10:00:00",
+		Iqa: 16.05936,
+		Valor: 25.0,
+		Poluente: "Partículas Inaláveis (<10µm)",
+		Faixa: "Boa",
+	},
+	{
+		IdEstacao: 4,
+		Descricao: "EMQAr - RGV4",
+		Localizacao: "Enseada do Suá",
+		DataHora: "2026-10-02T10:00:00",
+		Iqa: 28.454, // IQA oficial da API (médias móveis regulatórias da rede IEMA) preservado
+		Valor: 10.67, // pm25 em µg/m³
+		Poluente: "Partículas Respiráveis (<2,5µm)",
+		Faixa: "Boa",
+	},
+	{
+		IdEstacao: 5,
+		Descricao: "EMQAr - RGV5",
+		Localizacao: "Vitória - Centro",
+		DataHora: "2026-10-02T10:00:00",
+		Iqa: 17.5396,
+		Valor: 8.769799,
+		Poluente: "Partículas Respiráveis (<2,5µm)",
+		Faixa: "Boa",
+	},
+	{
+		IdEstacao: 6,
+		Descricao: "EMQAr - RGV6",
+		Localizacao: "Ibes",
+		DataHora: "2026-10-02T10:00:00",
+		Iqa: 12.16424,
+		Valor: 6.0821204,
+		Poluente: "Partículas Respiráveis (<2,5µm)",
+		Faixa: "Boa",
+	},
+	{
+		IdEstacao: 8,
+		Descricao: "EMQAr - RGV8",
+		Localizacao: "Cariacica",
+		DataHora: "2026-10-02T10:00:00",
+		Iqa: 14.37616,
+		Valor: 5.2913218,
+		Poluente: "Dióxido de Enxofre",
+		Faixa: "Boa",
+	},
+	{
+		IdEstacao: 9,
+		Descricao: "EMQAr - RGV10",
+		Localizacao: "Cid. Continental",
+		DataHora: "2026-10-02T10:00:00",
+		Iqa: 12.24892,
+		Valor: 6.1244583,
+		Poluente: "Partículas Respiráveis (<2,5µm)",
+		Faixa: "Boa",
+	},
+	{
+		IdEstacao: 11,
+		Descricao: "EMQAr - SUL 1",
+		Localizacao: "Meaípe",
+		DataHora: "2026-10-02T10:00:00",
+		Iqa: 14.44264,
+		Valor: 23.095472,
+		Poluente: "Partículas Inaláveis (<10µm)",
+		Faixa: "Boa",
+	},
+];
+
+test("migration 0003: aplica 0001→0003 e dois upserts de sources diferentes convivem no mesmo (station_id, timestamp)", async () => {
+	const local = localD1(createSchema());
+	try {
+		const sql = buildObservedUpsert();
+		// 1. Grava previsão CAMS em (ramqar_camburi, 2026-10-02T13:00)
+		await local.db
+			.prepare(sql)
+			.bind(
+				"id-cams-1",
+				"ramqar_camburi",
+				"2026-10-02T13:00",
+				12.4,
+				21.7,
+				3.1,
+				18.2,
+				63.0,
+				412.0,
+				33,
+				"Boa",
+				"pm25",
+				CAMPS_FORECAST_SOURCE,
+			)
+			.run();
+
+		// 2. Grava observação IEMA na MESMA (station_id, timestamp)
+		await local.db
+			.prepare(sql)
+			.bind(
+				"id-iema-1",
+				"ramqar_camburi",
+				"2026-10-02T13:00",
+				8.5,
+				25.0,
+				2.0,
+				14.0,
+				50.0,
+				350.0,
+				23,
+				"Boa",
+				"pm25",
+				IEMA_SENTINEL,
+			)
+			.run();
+
+		const { results } = await local.db
+			.prepare(
+				"SELECT id, pm25, pm10, iqar_index, source FROM observed_pollutants WHERE station_id=? AND timestamp=? ORDER BY source",
+			)
+			.bind("ramqar_camburi", "2026-10-02T13:00")
+			.all<{
+				id: string;
+				pm25: number;
+				pm10: number;
+				iqar_index: number;
+				source: string;
+			}>();
+
+		assert.equal(
+			results.length,
+			2,
+			"CAMS e IEMA têm de coexistir na mesma hora",
+		);
+		assert.deepEqual(
+			results.map((r) => ({ ...r })),
+			[
+				{
+					id: "id-iema-1",
+					pm25: 8.5,
+					pm10: 25,
+					iqar_index: 23,
+					source: "IEMA",
+				},
+				{
+					id: "id-cams-1",
+					pm25: 12.4,
+					pm10: 21.7,
+					iqar_index: 33,
+					source: CAMPS_FORECAST_SOURCE,
+				},
+			],
+		);
+
+		// 3. Re-upsert na MESMA source ('IEMA') atualiza in-place sem criar 3ª linha e preserva id
+		await local.db
+			.prepare(sql)
+			.bind(
+				"id-iema-2",
+				"ramqar_camburi",
+				"2026-10-02T13:00",
+				15.0,
+				28.0,
+				2.5,
+				16.0,
+				55.0,
+				360.0,
+				40,
+				"Boa",
+				"pm25",
+				IEMA_SENTINEL,
+			)
+			.run();
+
+		const afterUpdate = await local.db
+			.prepare(
+				"SELECT id, pm25, iqar_index, source FROM observed_pollutants WHERE station_id=? AND timestamp=? ORDER BY source",
+			)
+			.bind("ramqar_camburi", "2026-10-02T13:00")
+			.all<{ id: string; pm25: number; iqar_index: number; source: string }>();
+
+		assert.equal(afterUpdate.results.length, 2);
+		assert.deepEqual(
+			{ ...afterUpdate.results[0] },
+			{
+				id: "id-iema-1",
+				pm25: 15,
+				iqar_index: 40,
+				source: "IEMA",
+			},
+		);
+	} finally {
+		local.close();
+	}
+});
+
+test("migration 0003: aplica sobre banco com DADOS pré-existentes, preservando registros e habilitando coexistência por source", () => {
+	const db = new DatabaseSync(":memory:");
+	try {
+		// 1. Aplica 0001 (init) e 0002 (adiciona coluna source, ainda com UNIQUE(station_id, timestamp))
+		db.exec(readFileSync(`${DB_DIR}migrations/0001_init.sql`, "utf8"));
+		db.exec(
+			readFileSync(`${DB_DIR}migrations/0002_observed_source.sql`, "utf8"),
+		);
+		db.exec(readFileSync(`${DB_DIR}seed.sql`, "utf8"));
+
+		// 2. Insere dados pré-existentes sob a restrição antiga
+		const insertOld = db.prepare(`INSERT INTO observed_pollutants
+			(id, station_id, timestamp, pm25, pm10, so2, no2, o3, co, iqar_index, iqar_classification, primary_pollutant, source, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+		insertOld.run(
+			"legacy-1",
+			"ramqar_camburi",
+			"2026-10-18T12:00",
+			12.5,
+			22.0,
+			2.1,
+			14.0,
+			45.0,
+			320.0,
+			30,
+			"Boa",
+			"pm25",
+			"open-meteo-cams-forecast",
+			"2026-10-18 12:30:00",
+		);
+
+		insertOld.run(
+			"legacy-2",
+			"ramqar_vitoria_centro",
+			"2026-10-18T12:00",
+			8.0,
+			18.0,
+			1.5,
+			10.0,
+			35.0,
+			280.0,
+			22,
+			"Boa",
+			"pm25",
+			null, // linha antiga sem source preenchido
+			"2026-10-18 12:30:00",
+		);
+
+		// 3. Aplica a migration 0003 que reconstrói a tabela com UNIQUE(station_id, timestamp, source)
+		db.exec(
+			readFileSync(
+				`${DB_DIR}migrations/0003_observed_source_unique.sql`,
+				"utf8",
+			),
+		);
+
+		// 4. Valida integridade absoluta dos dados após a migração
+		const rows = db
+			.prepare("SELECT * FROM observed_pollutants ORDER BY id")
+			.all() as Array<Record<string, unknown>>;
+		assert.equal(
+			rows.length,
+			2,
+			"todas as linhas pré-existentes devem ser migradas",
+		);
+		assert.equal(rows[0].id, "legacy-1");
+		assert.equal(rows[0].station_id, "ramqar_camburi");
+		assert.equal(rows[0].pm25, 12.5);
+		assert.equal(rows[0].source, "open-meteo-cams-forecast");
+		assert.equal(rows[0].created_at, "2026-10-18 12:30:00");
+
+		assert.equal(rows[1].id, "legacy-2");
+		assert.equal(rows[1].station_id, "ramqar_vitoria_centro");
+		assert.equal(rows[1].source, null);
+
+		// 5. Prova que agora podemos inserir linha IEMA na MESMA (station_id, timestamp) sem violar UNIQUE
+		const insertNew = db.prepare(`INSERT INTO observed_pollutants
+			(id, station_id, timestamp, pm25, pm10, so2, no2, o3, co, iqar_index, iqar_classification, primary_pollutant, source)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
+		insertNew.run(
+			"iema-new-1",
+			"ramqar_camburi",
+			"2026-10-18T12:00",
+			7.2,
+			19.0,
+			1.8,
+			11.0,
+			40.0,
+			310.0,
+			19,
+			"Boa",
+			"pm25",
+			"IEMA",
+		);
+
+		const camburiRows = db
+			.prepare(
+				"SELECT id, source, pm25 FROM observed_pollutants WHERE station_id = 'ramqar_camburi' AND timestamp = '2026-10-18T12:00' ORDER BY source",
+			)
+			.all() as Array<Record<string, unknown>>;
+		assert.equal(
+			camburiRows.length,
+			2,
+			"CAMS e IEMA coexistem no mesmo par (estação, hora)",
+		);
+		assert.equal(camburiRows[0].source, "IEMA");
+		assert.equal(camburiRows[1].source, "open-meteo-cams-forecast");
+	} finally {
+		db.close();
+	}
+});
+
+test("resolução de conflito IEMA: backfill oficial multi-poluente vence o cron instantâneo independentemente da ordem", async () => {
+	const local = localD1(createSchema());
+	try {
+		// Cenário A: Cron roda primeiro (grava linha parcial de 1 poluente), depois Backfill roda
+		// 1. Cron grava RGV3 com apenas PM10=25.0 e IQA oficial 16
+		const cronRowA = {
+			stationId: "ramqar_camburi",
+			timestamp: "2026-10-18T17:00",
+			pm25: null,
+			pm10: 25.0,
+			so2: null,
+			no2: null,
+			o3: null,
+			co: null,
+			iqarIndex: 16,
+			iqarClassification: "Boa",
+			primaryPollutant: "pm10",
+			source: IEMA_SENTINEL,
+		};
+		await upsertObservedRows(local.db, [cronRowA], buildIemaMapaUpsert());
+
+		// 2. Backfill roda depois trazendo dados consolidados de múltiplos poluentes
+		const backfillRowA = {
+			stationId: "ramqar_camburi",
+			timestamp: "2026-10-18T17:00",
+			pm25: 8.5,
+			pm10: 22.0,
+			so2: 2.0,
+			no2: 12.0,
+			o3: 45.0,
+			co: 300.0,
+			iqarIndex: 22,
+			iqarClassification: "Boa",
+			primaryPollutant: "pm25",
+			source: IEMA_SENTINEL,
+		};
+		await upsertObservedRows(local.db, [backfillRowA], buildObservedUpsert());
+
+		const afterBackfillA = await local.db
+			.prepare(
+				"SELECT pm25, pm10, o3, iqar_index, primary_pollutant FROM observed_pollutants WHERE station_id = 'ramqar_camburi' AND timestamp = '2026-10-18T17:00' AND source = 'IEMA'",
+			)
+			.first<Record<string, unknown>>();
+		assert.equal(afterBackfillA?.pm25, 8.5);
+		assert.equal(afterBackfillA?.pm10, 22.0);
+		assert.equal(afterBackfillA?.o3, 45.0);
+		assert.equal(afterBackfillA?.iqar_index, 22);
+
+		// Cenário B: Backfill roda primeiro (grava dados consolidados), depois Cron roda na mesma hora
+		// 1. Backfill grava RGV6 consolidado
+		const backfillRowB = {
+			stationId: "ramqar_ibes",
+			timestamp: "2026-10-18T17:00",
+			pm25: 9.0,
+			pm10: 18.0,
+			so2: 1.5,
+			no2: 10.0,
+			o3: 35.0,
+			co: 250.0,
+			iqarIndex: 18,
+			iqarClassification: "Boa",
+			primaryPollutant: "pm25",
+			source: IEMA_SENTINEL,
+		};
+		await upsertObservedRows(local.db, [backfillRowB], buildObservedUpsert());
+
+		// 2. Cron roda na mesma hora com apenas PM2.5 e demais campos nulos
+		const cronRowB = {
+			stationId: "ramqar_ibes",
+			timestamp: "2026-10-18T17:00",
+			pm25: 14.0, // leitura instantânea de 1h
+			pm10: null,
+			so2: null,
+			no2: null,
+			o3: null,
+			co: null,
+			iqarIndex: 28,
+			iqarClassification: "Boa",
+			primaryPollutant: "pm25",
+			source: IEMA_SENTINEL,
+		};
+		await upsertObservedRows(local.db, [cronRowB], buildIemaMapaUpsert());
+
+		// 3. Prova que os campos consolidados do backfill NÃO foram destruídos pelo cron (COALESCE protege)
+		const afterCronB = await local.db
+			.prepare(
+				"SELECT pm25, pm10, so2, o3, iqar_index, primary_pollutant FROM observed_pollutants WHERE station_id = 'ramqar_ibes' AND timestamp = '2026-10-18T17:00' AND source = 'IEMA'",
+			)
+			.first<Record<string, unknown>>();
+		assert.equal(
+			afterCronB?.pm25,
+			9.0,
+			"backfill consolidado vence a leitura instantânea do cron",
+		);
+		assert.equal(
+			afterCronB?.pm10,
+			18.0,
+			"campos existentes não são sobrescritos com NULL pelo cron",
+		);
+		assert.equal(afterCronB?.o3, 35.0);
+		assert.equal(afterCronB?.iqar_index, 18);
+	} finally {
+		local.close();
+	}
+});
+
+test("IEMA_STATION_MAP: mapeia exatamente as 7 estações físicas do v1 e deixa ramqar_paul e ramqar_vila_velha_fundo de fora", () => {
+	assert.deepEqual(IEMA_STATION_MAP, {
+		1: "ramqar_serra_laranjeiras",
+		3: "ramqar_camburi",
+		4: "ramqar_enseada_sua",
+		5: "ramqar_vitoria_centro",
+		6: "ramqar_ibes",
+		8: "ramqar_cariacica",
+		9: "ramqar_serra_jacupemba",
+	});
+	const mappedStations = Object.values(IEMA_STATION_MAP);
+	assert.equal(mappedStations.length, 7);
+	assert.ok(!mappedStations.includes("ramqar_paul" as never));
+	assert.ok(!mappedStations.includes("ramqar_vila_velha_fundo" as never));
+});
+
+test("iemaDataHoraToUtc: converte BRT (-03:00) para UTC YYYY-MM-DDTHH:00 e rejeita sentinela offline", () => {
+	assert.equal(iemaDataHoraToUtc("2026-10-18T16:00:00"), "2026-10-18T19:00");
+	// Virada de dia (22:00 BRT → 01:00 UTC do dia seguinte)
+	assert.equal(iemaDataHoraToUtc("2026-10-18T22:00:00"), "2026-10-19T01:00");
+	// Virada de mês/ano
+	assert.equal(iemaDataHoraToUtc("2026-12-31T21:00:00"), "2027-01-01T00:00");
+	// Sentinela de estação offline na API IEMA (ex.: RGV2 Carapina)
+	assert.equal(iemaDataHoraToUtc("0001-01-01T00:00:00"), null);
+	assert.equal(iemaDataHoraToUtc(""), null);
+	// F9: Rejeita ano futuro (ex.: ano 2099 ou 2035)
+	assert.equal(iemaDataHoraToUtc("2099-01-01T00:00:00", NOW), null);
+	assert.equal(iemaDataHoraToUtc("2035-06-15T12:00:00", NOW), null);
+});
+
+test("parseIemaPollutant: reconhece nomes, siglas e formato Unicode com subscritos (MP₂,₅ / MP₁₀)", () => {
+	assert.equal(parseIemaPollutant("MP₂,₅"), "pm25");
+	assert.equal(parseIemaPollutant("Partículas Respiráveis (MP₂,₅)"), "pm25");
+	assert.equal(parseIemaPollutant("MP₁₀"), "pm10");
+	assert.equal(parseIemaPollutant("Partículas Inaláveis (MP₁₀)"), "pm10");
+	assert.equal(parseIemaPollutant("Ozônio"), "o3");
+	assert.equal(parseIemaPollutant("Dióxido de Nitrogênio"), "no2");
+	assert.equal(parseIemaPollutant("Dióxido de Enxofre"), "so2");
+	assert.equal(parseIemaPollutant("Monóxido de Carbono"), "co");
+	assert.equal(parseIemaPollutant("invalido"), null);
+});
+
+test("iemaRowFromMapa e iemaIqaToUgM3: preserva Iqa oficial no cron, inverte CONAMA no backfill e respeita teto 0..300", () => {
+	// Em /api/mapa, Valor já vem em µg/m³ (fator 1.0). Em RGV4 (IdEstacao=4),
+	// Valor=10.67 de MP2,5 tem Iqa=28.454 e Faixa="Boa": iemaRowFromMapa DEVE
+	// preservar o Iqa oficial do IEMA (arredondado para 28) e Faixa "Boa".
+	const row4 = iemaRowFromMapa(IEMA_MAPA_FIXTURE[3], undefined, NOW);
+	assert.ok(row4);
+	assert.equal(row4.stationId, "ramqar_enseada_sua");
+	assert.equal(row4.timestamp, "2026-10-02T13:00");
+	assert.equal(row4.pm25, 10.67);
+	assert.equal(row4.pm10, null);
+	assert.equal(row4.iqarIndex, 28);
+	assert.equal(row4.iqarClassification, "Boa");
+	assert.equal(row4.primaryPollutant, "pm25");
+	assert.equal(row4.source, "IEMA");
+
+	// Item sem Iqa/Faixa oficial: deixa iqarIndex/classification/primary nulos (não deriva de Valor de 1h)
+	const rowNoIqa = iemaRowFromMapa(
+		{
+			IdEstacao: 4,
+			DataHora: "2026-10-02T10:00:00",
+			Valor: 15.0,
+			Poluente: "MP2,5",
+			Iqa: null,
+			Faixa: null,
+		},
+		undefined,
+		NOW,
+	);
+	assert.ok(rowNoIqa);
+	assert.equal(rowNoIqa.iqarIndex, null);
+	assert.equal(rowNoIqa.iqarClassification, null);
+	assert.equal(rowNoIqa.primaryPollutant, null);
+
+	// Estação offline (IdEstacao=2) e estação fora do escopo (IdEstacao=11) retornam null
+	assert.equal(iemaRowFromMapa(IEMA_MAPA_FIXTURE[1], undefined, NOW), null);
+	assert.equal(iemaRowFromMapa(IEMA_MAPA_FIXTURE[8], undefined, NOW), null);
+
+	// Em /api/mapa/{id}, ValorIqa é subíndice Ip: iemaIqaToUgM3 inverte a faixa CONAMA
+	// PM2.5 Boa (0..40 → 0..15 µg/m³): Ip=20 → 7.5 µg/m³
+	assert.equal(iemaIqaToUgM3("pm25", 20), 7.5);
+	// O3 Boa (0..40 → 0..100 µg/m³): Ip=10.03 → 25.07 µg/m³
+	assert.equal(iemaIqaToUgM3("o3", 10.03), 25.07);
+	// CO Boa (0..40 → 0..10000 µg/m³, fator 250 µg/m³ por ponto de IQA): Ip=1.74 → 435 µg/m³
+	assert.equal(iemaIqaToUgM3("co", 1.74), 435);
+
+	// F3: Teto e piso CONAMA 491/2018 (0..300): valores fora desse intervalo devolvem null
+	assert.equal(
+		iemaIqaToUgM3("pm25", 350),
+		null,
+		"subíndice > 300 deve devolver null",
+	);
+	assert.equal(iemaIqaToUgM3("pm25", 301), null);
+	assert.equal(
+		iemaIqaToUgM3("pm25", -5),
+		null,
+		"subíndice < 0 deve devolver null",
+	);
+	assert.equal(
+		iemaIqaToUgM3("pm25", 300),
+		150,
+		"teto 300 mapeia para bpHi 150 µg/m³",
+	);
+});
+
+test("ingest (cron :30): grava CAMS + 7 estações IEMA de /api/mapa coexistindo na mesma hora", async () => {
+	const local = localD1(createSchema());
+	try {
+		const report = await ingest(
+			{ DB: local.db },
+			{
+				now: NOW,
+				fetchImpl: fakeOpenMeteo(WINDOW_HOURS, { iema: IEMA_MAPA_FIXTURE }),
+				...SILENT,
+			},
+		);
+
+		assert.equal(report.failed, 0);
+		assert.equal(report.observedRows, 9 * WINDOW_HOURS.length);
+		assert.ok(report.iema);
+		assert.equal(report.iema.ok, true);
+		assert.equal(report.iema.observedRows, 7);
+
+		const bySource = await local.db
+			.prepare(
+				"SELECT source, COUNT(*) n FROM observed_pollutants GROUP BY source ORDER BY source",
+			)
+			.all<{ source: string; n: number }>();
+		assert.deepEqual(
+			bySource.results.map((r) => ({ source: r.source, n: r.n })),
+			[
+				{ source: "IEMA", n: 7 },
+				{ source: CAMPS_FORECAST_SOURCE, n: 27 },
+			],
+		);
+
+		// ramqar_paul e ramqar_vila_velha_fundo não têm linha IEMA no v1
+		const nonPhysical = await local.db
+			.prepare(
+				"SELECT COUNT(*) n FROM observed_pollutants WHERE source='IEMA' AND station_id IN ('ramqar_paul', 'ramqar_vila_velha_fundo')",
+			)
+			.first<{ n: number }>();
+		assert.equal(nonPhysical?.n, 0);
+	} finally {
+		local.close();
+	}
+});
+
+test("ingest (cron :30): falha da API IEMA é isolada e NUNCA derruba a ingestão CAMS", async () => {
+	const local = localD1(createSchema());
+	const errors: string[] = [];
+	try {
+		const base = fakeOpenMeteo(WINDOW_HOURS);
+		const iemaDown = (async (input: string) => {
+			if (String(input).startsWith(IEMA_MAPA_URL)) {
+				return new Response("prodest gateway timeout", { status: 504 });
+			}
+			return base(input);
+		}) as unknown as typeof fetch;
+
+		const report = await ingest(
+			{ DB: local.db },
+			{
+				now: NOW,
+				fetchImpl: iemaDown,
+				log: () => {},
+				logError: (m) => errors.push(m),
+			},
+		);
+
+		assert.equal(
+			report.failed,
+			0,
+			"falha do IEMA não pode contar como falha das estações CAMS",
+		);
+		assert.equal(report.observedRows, 9 * WINDOW_HOURS.length);
+		assert.equal(report.featureRows, 9 * WINDOW_HOURS.length);
+		assert.ok(report.iema);
+		assert.equal(report.iema.ok, false);
+		assert.equal(report.iema.observedRows, 0);
+		assert.match(report.iema.error ?? "", /504/);
+		assert.match(errors.join("\n"), /IEMA/i);
+	} finally {
+		local.close();
+	}
+});
+
+test("parseInsituHours: default 48 e aceita inteiros 1..MAX_INSITU_HOURS (48)", () => {
+	assert.equal(MAX_INSITU_HOURS, 48);
+	assert.deepEqual(parseInsituHours(null), { ok: true, hours: 48 });
+	assert.deepEqual(parseInsituHours(undefined), { ok: true, hours: 48 });
+	assert.deepEqual(parseInsituHours("1"), { ok: true, hours: 1 });
+	assert.deepEqual(parseInsituHours("24"), { ok: true, hours: 24 });
+	assert.deepEqual(parseInsituHours("48"), { ok: true, hours: 48 });
+	for (const bad of ["", "0", "-5", "49", "72", "12.5", "abc"]) {
+		const res = parseInsituHours(bad);
+		assert.equal(
+			res.ok,
+			false,
+			`deveria rejeitar hours=${JSON.stringify(bad)}`,
+		);
+	}
+});
+
+test("ingestInsitu e POST /ingest/insitu?hours=N: faz backfill de 48h por estação via /api/mapa/{id}, aplica horas de corte e valida 405/401/400/502", async () => {
+	const local = localD1(createSchema());
+	const origFetch = globalThis.fetch;
+	const origLog = console.log;
+	const origErr = console.error;
+	try {
+		// 1. 405 para GET/HEAD
+		for (const method of ["GET", "HEAD"]) {
+			const res = await worker.fetch(
+				new Request("https://aetherml-ingestion.local/ingest/insitu", {
+					method,
+				}),
+				{ DB: local.db },
+			);
+			assert.equal(res.status, 405);
+		}
+
+		// 2. 401 quando INGEST_TOKEN está definido e header falta/erra
+		const unauth = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest/insitu", {
+				method: "POST",
+			}),
+			{ DB: local.db, INGEST_TOKEN: "tok-123" },
+		);
+		assert.equal(unauth.status, 401);
+
+		// 3. 400 para hours inválido
+		for (const q of ["hours=0", "hours=49", "hours=-1", "hours=abc"]) {
+			const bad = await worker.fetch(
+				new Request(`https://aetherml-ingestion.local/ingest/insitu?${q}`, {
+					method: "POST",
+					headers: { "X-Ingest-Token": "tok-123" },
+				}),
+				{ DB: local.db, INGEST_TOKEN: "tok-123" },
+			);
+			assert.equal(bad.status, 400);
+		}
+
+		// 4. 200 com série de 3 horas nas 7 estações e recorte ?hours=2
+		const seriesFixture = [
+			{
+				Poluente: "Partículas Respiráveis (<2,5µm)",
+				PoluenteSigla: "(MP2,5)",
+				Estacao: "EMQAr",
+				DataHora: [
+					"2026-10-02T08:00:00", // 11:00 UTC
+					"2026-10-02T09:00:00", // 12:00 UTC
+					"2026-10-02T10:00:00", // 13:00 UTC
+				],
+				ValorIqa: ["20.0", "24.0", "28.0"], // 7.5, 9.0, 10.5 µg/m³
+			},
+			{
+				Poluente: "Ozônio",
+				PoluenteSigla: "(O3)",
+				Estacao: "EMQAr",
+				DataHora: [
+					"2026-10-02T08:00:00",
+					"2026-10-02T09:00:00",
+					"2026-10-02T10:00:00",
+				],
+				ValorIqa: ["10.0", "12.0", "16.0"], // 25, 30, 40 µg/m³
+			},
+			{
+				Poluente: "Monóxido de Carbono",
+				PoluenteSigla: "(CO)",
+				Estacao: "EMQAr",
+				DataHora: [
+					"2026-10-02T08:00:00",
+					"2026-10-02T09:00:00",
+					"2026-10-02T10:00:00",
+				],
+				ValorIqa: ["1.6", "1.8", "2.0"], // 400, 450, 500 µg/m³
+			},
+		];
+
+		const requestedStationUrls: string[] = [];
+		globalThis.fetch = (async (input: string) => {
+			requestedStationUrls.push(String(input));
+			return new Response(JSON.stringify(seriesFixture), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}) as unknown as typeof fetch;
+		console.log = () => {};
+		console.error = () => {};
+
+		const okRes = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest/insitu?hours=2", {
+				method: "POST",
+				headers: { "X-Ingest-Token": "tok-123" },
+			}),
+			{ DB: local.db, INGEST_TOKEN: "tok-123" },
+		);
+		assert.equal(okRes.status, 200);
+		const report = (await okRes.json()) as {
+			hours: number;
+			observedRows: number;
+			failed: number;
+			stations: Array<{
+				idEstacao: number;
+				stationId: string;
+				ok: boolean;
+				observedRows: number;
+			}>;
+		};
+		assert.equal(report.hours, 2);
+		assert.equal(report.failed, 0);
+		assert.equal(report.stations.length, 7);
+		// Com hours=2, recorta apenas as 2 horas mais recentes (12:00 e 13:00 UTC) × 7 estações = 14 linhas
+		assert.equal(report.observedRows, 14);
+		assert.equal(requestedStationUrls.length, 7);
+
+		const sample = await local.db
+			.prepare(
+				"SELECT pm25, o3, co, iqar_index, iqar_classification, primary_pollutant, source FROM observed_pollutants WHERE station_id='ramqar_camburi' AND timestamp='2026-10-02T13:00'",
+			)
+			.first<Record<string, unknown>>();
+		assert.equal(sample?.pm25, 10.5);
+		assert.equal(sample?.o3, 40);
+		assert.equal(sample?.co, 500);
+		assert.equal(sample?.iqar_index, 28);
+		assert.equal(sample?.iqar_classification, "Boa");
+		assert.equal(sample?.primary_pollutant, "pm25");
+		assert.equal(sample?.source, "IEMA");
+
+		// 5. Idempotência: rodar de novo mantém 14 linhas
+		await ingestInsitu(
+			{ DB: local.db },
+			{ hours: 2, fetchImpl: globalThis.fetch, ...SILENT },
+		);
+		const totalAfter = await local.db
+			.prepare("SELECT COUNT(*) n FROM observed_pollutants WHERE source='IEMA'")
+			.first<{ n: number }>();
+		assert.equal(totalAfter?.n, 14);
+
+		// 6. 502 quando todas as 7 estações falham e nenhuma linha é gravada
+		globalThis.fetch = (async () =>
+			new Response("iema down", { status: 503 })) as unknown as typeof fetch;
+		const failRes = await worker.fetch(
+			new Request("https://aetherml-ingestion.local/ingest/insitu?hours=48", {
+				method: "POST",
+				headers: { "X-Ingest-Token": "tok-123" },
+			}),
+			{ DB: local.db, INGEST_TOKEN: "tok-123" },
+		);
+		assert.equal(failRes.status, 502);
 	} finally {
 		globalThis.fetch = origFetch;
 		console.log = origLog;

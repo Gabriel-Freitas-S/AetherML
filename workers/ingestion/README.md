@@ -49,10 +49,11 @@ O endpoint `/ingest` aceita **exclusivamente** método `POST`:
   curl -sS -X POST "https://aetherml-ingestion.freitassouza26.workers.dev/ingest?days=7"
   ```
 
-#### Autenticação Opcional (`INGEST_TOKEN`)
-- Se a secret/variável `env.INGEST_TOKEN` **não estiver definida** (`undefined`), o endpoint mantém o comportamento aberto atual.
-- Se `env.INGEST_TOKEN` **estiver definida** (`!== undefined`), opera em modo **fail-closed**: exige que toda requisição `POST /ingest` envie o header `X-Ingest-Token: <valor>` idêntico ao secret não vazio; caso o secret tenha sido configurado vazio (`""`) ou o header esteja ausente/incorreto, responde `401 Unauthorized` sem tocar no D1.
-- **Rollout do secret (opcional, decidido no deploy)**:
+#### Autenticação Obrigatória (`INGEST_TOKEN` — Fail-Closed)
+- Por segurança, os endpoints de escrita manual (`POST /ingest` e `POST /ingest/insitu`) operam em modo **fail-closed**:
+- Exige que `env.INGEST_TOKEN` esteja configurado no Worker (não nulo e não vazio) e que a requisição envie o header `X-Ingest-Token: <valor>` correspondente.
+- Se `env.INGEST_TOKEN` não estiver configurado no Worker ou o header estiver ausente/incorreto, a requisição é rejeitada imediatamente com `401 Unauthorized` sem tocar no D1.
+- **Configuração do secret**:
   ```bash
   npx wrangler secret put INGEST_TOKEN --config workers/ingestion/wrangler.jsonc
   curl -sS -X POST -H "X-Ingest-Token: $INGEST_TOKEN" \
@@ -62,10 +63,10 @@ O endpoint `/ingest` aceita **exclusivamente** método `POST`:
 #### Semântica dos Status HTTP
 - `200 OK`: execução concluída (não é falha total — inclui `observedRows === 0` se a janela vier vazia sem erro upstream, bem como falhas parciais onde `report.failed > 0` mas ao menos uma estação não falhou; inspecione `failed` e `stations[].error` no JSON retornado).
 - `502 Bad Gateway`: falha total (`report.failed > 0 && report.observedRows === 0` — nenhuma linha gravada).
-- `400 Bad Request`: parâmetro `days` inválido (não inteiro, `<= 0` ou `> 30`).
-- `401 Unauthorized`: `env.INGEST_TOKEN` configurado no Worker (`!== undefined`, inclusive string vazia `""` por fail-closed) e header `X-Ingest-Token` ausente ou incorreto.
+- `400 Bad Request`: parâmetro `days` ou `hours` inválido.
+- `401 Unauthorized`: `env.INGEST_TOKEN` não configurado ou header `X-Ingest-Token` ausente/inválido (fail-closed).
 - `405 Method Not Allowed`: método diferente de `POST` (inclui `Allow: POST`), sem tocar no D1.
-- `404 Not Found`: rota diferente de `/ingest`.
+- `404 Not Found`: rota diferente de `/ingest` ou `/ingest/insitu`.
 
 ### Testes e Deploy
 ```bash

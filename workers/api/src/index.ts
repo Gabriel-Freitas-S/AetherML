@@ -40,7 +40,25 @@ export default {
 					400,
 				);
 			const { results } = await env.DB.prepare(
-				"SELECT * FROM observed_pollutants WHERE station_id=? AND timestamp BETWEEN ? AND ? ORDER BY timestamp",
+				`SELECT id, station_id, timestamp, pm25, pm10, so2, no2, o3, co,
+				        iqar_index, iqar_classification, primary_pollutant, source, created_at
+				 FROM (
+				   SELECT *,
+				          ROW_NUMBER() OVER (
+				            PARTITION BY timestamp
+				            ORDER BY CASE
+				              WHEN source = 'IEMA' THEN 1
+				              WHEN source = 'open-meteo-cams-reanalysis' THEN 2
+				              WHEN source IS NULL THEN 3
+				              WHEN source = 'open-meteo-cams-forecast' THEN 4
+				              ELSE 5
+				            END ASC
+				          ) AS rn
+				   FROM observed_pollutants
+				   WHERE station_id = ? AND timestamp BETWEEN ? AND ?
+				 )
+				 WHERE rn = 1
+				 ORDER BY timestamp ASC`,
 			)
 				.bind(station, from, to)
 				.all();
