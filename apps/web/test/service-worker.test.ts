@@ -4,8 +4,12 @@ import {
 	STATIC_ASSETS,
 	canCacheModelResponse,
 	cleanRedirectedResponse,
+	getModelCacheStrategy,
 	isDashboardNavigationPath,
+	isModelMetadataPath,
+	isModelOrWasmPath,
 	resolveOfflineDataFallbackUrl,
+	versionedAssetUrl,
 } from "../src/lib/sw-core.ts";
 
 test("STATIC_ASSETS inclui os 4 JSONs de dados, offline.html e rotas principais do painel", () => {
@@ -111,4 +115,130 @@ test("todo arquivo .wasm em apps/web/public/wasm possui um loader .mjs irmão (g
 			`Arquivo ${wasmFile} não possui loader irmão ${expectedMjs} em public/wasm`,
 		);
 	}
+});
+
+test("STATIC_ASSETS inclui calibration.json para garantir calibração offline-first", () => {
+	assert.ok(STATIC_ASSETS.includes("/models/calibration.json"));
+});
+
+test("versionedAssetUrl anexa ou substitui query param de versão v corretamente", () => {
+	// Caminho feliz: sem query string anterior
+	assert.equal(
+		versionedAssetUrl("/models/pm25.onnx", "v2026.42.1"),
+		"/models/pm25.onnx?v=v2026.42.1",
+	);
+	assert.equal(
+		versionedAssetUrl("/models/calibration.json", "v2026.42.1"),
+		"/models/calibration.json?v=v2026.42.1",
+	);
+	// Com parâmetros pré-existentes
+	assert.equal(
+		versionedAssetUrl("/models/pm25.onnx?backend=wasm", "v2026.42.1"),
+		"/models/pm25.onnx?backend=wasm&v=v2026.42.1",
+	);
+	// Substituição de versão anterior
+	assert.equal(
+		versionedAssetUrl("/models/pm25.onnx?v=v2026.38.5", "v2026.42.1"),
+		"/models/pm25.onnx?v=v2026.42.1",
+	);
+	// Versão vazia ou ausente: mantém path intocado
+	assert.equal(versionedAssetUrl("/models/pm25.onnx", ""), "/models/pm25.onnx");
+	assert.equal(
+		versionedAssetUrl("/models/pm25.onnx", undefined),
+		"/models/pm25.onnx",
+	);
+	assert.equal(
+		versionedAssetUrl("/models/pm25.onnx", null),
+		"/models/pm25.onnx",
+	);
+});
+
+test("isModelMetadataPath classifica registry.json e calibration.json como metadados", () => {
+	assert.equal(isModelMetadataPath("/models/registry.json"), true);
+	assert.equal(isModelMetadataPath("/models/calibration.json"), true);
+	assert.equal(isModelMetadataPath("/models/pm25.onnx"), false);
+	assert.equal(isModelMetadataPath("/models/pm25.topology.json"), false);
+	assert.equal(isModelMetadataPath("/wasm/ort-wasm-simd.wasm"), false);
+	assert.equal(isModelMetadataPath("/data/stations-data.json"), false);
+});
+
+test("isModelOrWasmPath identifica assets sob /models/ ou /wasm/", () => {
+	assert.equal(isModelOrWasmPath("/models/pm25.onnx"), true);
+	assert.equal(isModelOrWasmPath("/models/registry.json"), true);
+	assert.equal(isModelOrWasmPath("/wasm/ort-wasm-simd.wasm"), true);
+	assert.equal(isModelOrWasmPath("/data/stations-data.json"), false);
+	assert.equal(isModelOrWasmPath("/api/forecast"), false);
+	assert.equal(isModelOrWasmPath("/confronto"), false);
+});
+
+test("getModelCacheStrategy separa network-first (metadados) de cache-first (modelos/wasm)", () => {
+	assert.equal(getModelCacheStrategy("/models/registry.json"), "network-first");
+	assert.equal(
+		getModelCacheStrategy("/models/calibration.json"),
+		"network-first",
+	);
+	assert.equal(getModelCacheStrategy("/models/pm25.onnx"), "cache-first");
+	assert.equal(
+		getModelCacheStrategy("/models/pm25.topology.json"),
+		"cache-first",
+	);
+	assert.equal(
+		getModelCacheStrategy("/wasm/ort-wasm-simd.wasm"),
+		"cache-first",
+	);
+	assert.equal(getModelCacheStrategy("/data/stations-data.json"), null);
+});
+
+test("match de modelo com versão exige query param exato (sem ignoreSearch) para evitar mismatch", async () => {
+	// Simulação de cache com Request / Response
+	const store = new Map<string, Response>();
+	const fakeCache = {
+		put: async (req: Request | string, res: Response) => {
+			const key = typeof req === "string" ? req : req.url;
+			store.set(key, res);
+		},
+		match: async (
+			req: Request | string,
+			options?: { ignoreSearch?: boolean },
+		) => {
+			const key = typeof req === "string" ? req : req.url;
+			if (options?.ignoreSearch) {
+				const targetBase = key.split("?")[0];
+				for (const [storedUrl, res] of store.entries()) {
+					if (storedUrl.split("?")[0] === targetBase) {
+						return res;
+					}
+				}
+				return undefined;
+			}
+			return store.get(key);
+		},
+	};
+
+	// Popula cache antigo com modelo da v2026.38.5
+	const oldModelUrl =
+		"https://aetherml.pages.dev/models/pm25.onnx?v=v2026.38.5";
+	const oldResponse = new Response("old_weights_v38_5", {
+		headers: { "Content-Type": "application/octet-stream" },
+	});
+	await fakeCache.put(oldModelUrl, oldResponse);
+
+	// Nova requisição buscando o modelo promovido v2026.42.1
+	const newRequestUrl =
+		"https://aetherml.pages.dev/models/pm25.onnx?v=v2026.42.1";
+
+	// Comportamento ANTERIOR (com ignoreSearch: true) -> causava o BUG:
+	const buggyMatch = await fakeCache.match(newRequestUrl, {
+		ignoreSearch: true,
+	});
+	assert.ok(buggyMatch, "ignoreSearch=true devolvia modelo antigo!");
+	assert.equal(await buggyMatch.text(), "old_weights_v38_5"); // Mismatch garantido!
+
+	// Comportamento NOVO (match exato pela URL completa, sem ignoreSearch) -> PREVINE O BUG:
+	const fixedMatch = await fakeCache.match(newRequestUrl);
+	assert.equal(
+		fixedMatch,
+		undefined,
+		"Match exato deve dar cache-miss quando a versão muda, forçando fetch novo da rede",
+	);
 });

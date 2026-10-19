@@ -9,6 +9,7 @@ import {
 	STATIC_ASSETS,
 	canCacheModelResponse,
 	cleanRedirectedResponse,
+	getModelCacheStrategy,
 	isDashboardNavigationPath,
 	resolveOfflineDataFallbackUrl,
 } from "./lib/sw-core";
@@ -86,13 +87,50 @@ self.addEventListener("fetch", (event) => {
 	if (request.method !== "GET") return;
 	const url = new URL(request.url);
 
-	// 1. Modelos .onnx, .wasm, .mjs e registry.json -> CacheFirst (imutável por versão)
-	if (url.pathname.includes("/models/") || url.pathname.includes("/wasm/")) {
+	// 1. Modelos e Wasm (registry.json/calibration.json -> NetworkFirst; .onnx/.topology.json/.wasm -> CacheFirst)
+	const modelStrategy = getModelCacheStrategy(url.pathname);
+	if (modelStrategy) {
+		if (modelStrategy === "network-first") {
+			// Metadados mutáveis (registry.json, calibration.json) -> NetworkFirst com fallback em CACHE_MODELS
+			event.respondWith(
+				fetch(request)
+					.then(async (res) => {
+						if (res.ok && canCacheModelResponse(res)) {
+							const cache = await caches.open(CACHE_MODELS);
+							await cache.put(request, res.clone());
+							if (url.search) {
+								const cleanUrl = new URL(request.url);
+								cleanUrl.search = "";
+								await cache.put(new Request(cleanUrl.toString()), res.clone());
+							}
+						}
+						return res;
+					})
+					.catch(async () => {
+						const cache = await caches.open(CACHE_MODELS);
+						const cached =
+							(await cache.match(request)) ||
+							(await cache.match(url.pathname)) ||
+							(await matchAcrossCaches(request)) ||
+							(await matchAcrossCaches(url.pathname));
+						if (cached) return cached;
+						return new Response(
+							JSON.stringify({ error: "offline", offline: true }),
+							{
+								status: 503,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}),
+			);
+			return;
+		}
+
+		// Binários e topologias imutáveis por versão (.onnx, .topology.json, /wasm/) -> CacheFirst com match exato (?v=)
 		event.respondWith(
 			caches.open(CACHE_MODELS).then(async (cache) => {
-				const cached =
-					(await cache.match(request)) ||
-					(await caches.match(request, { ignoreSearch: true }));
+				// Match exato com ?v= no CACHE_MODELS (sem ignoreSearch para evitar misturar versões)
+				const cached = await cache.match(request);
 				if (cached && canCacheModelResponse(cached)) return cached;
 				try {
 					const res = await fetch(request);

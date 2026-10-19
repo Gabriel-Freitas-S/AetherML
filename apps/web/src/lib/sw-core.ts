@@ -16,6 +16,7 @@ export const STATIC_ASSETS = [
 	"/pwa-512x512.png",
 	"/maskable-icon-512x512.png",
 	"/models/registry.json",
+	"/models/calibration.json",
 	"/data/stations-data.json",
 	"/data/model-eval.json",
 	"/data/comparison-data.json",
@@ -88,4 +89,51 @@ export function canCacheModelResponse(res: Response): boolean {
 	const contentType = (res.headers.get("Content-Type") ?? "").toLowerCase();
 	if (contentType.includes("text/html")) return false;
 	return true;
+}
+
+/**
+ * Anexa ou atualiza a tag de versão (?v=<version>) na URL de um asset de modelo.
+ * Se version for vazia, nula ou indefinida, devolve o path original intacto.
+ */
+export function versionedAssetUrl(
+	path: string,
+	version?: string | null,
+): string {
+	if (!version) return path;
+	const [base, search] = path.split("?");
+	const params = new URLSearchParams(search ?? "");
+	params.set("v", version);
+	const query = params.toString();
+	return query ? `${base}?${query}` : base;
+}
+
+/**
+ * Retorna true se o pathname aponta para metadados de modelo mutáveis
+ * que devem seguir estratégia Network-First (ex.: registry.json, calibration.json).
+ */
+export function isModelMetadataPath(pathname: string): boolean {
+	return (
+		pathname.endsWith("/models/registry.json") ||
+		pathname.endsWith("/models/calibration.json")
+	);
+}
+
+/**
+ * Retorna true se o pathname pertence ao escopo de modelos ou runtime wasm.
+ */
+export function isModelOrWasmPath(pathname: string): boolean {
+	return pathname.includes("/models/") || pathname.includes("/wasm/");
+}
+
+/**
+ * Retorna a estratégia de cache adequada para o asset sob /models/ ou /wasm/.
+ * Metadados (/models/registry.json e /models/calibration.json) são Network-First com fallback no cache.
+ * Binários e topologias (.onnx, .topology.json, .wasm, etc.) são Cache-First imutáveis por versão.
+ */
+export function getModelCacheStrategy(
+	pathname: string,
+): "network-first" | "cache-first" | null {
+	if (!isModelOrWasmPath(pathname)) return null;
+	if (isModelMetadataPath(pathname)) return "network-first";
+	return "cache-first";
 }

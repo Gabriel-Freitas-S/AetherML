@@ -76,34 +76,55 @@ export type WorkerOutMsg =
 export class AetherInferenceClient {
 	private worker: Worker;
 	private isReady = false;
+	private initError: Error | null = null;
 	private readyCallbacks: Array<() => void> = [];
+	private readyErrorCallbacks: Array<(err: Error) => void> = [];
 	private reqCounter = 0;
 
 	constructor(workerOrUrl: string | URL | Worker) {
-		if (typeof Worker !== "undefined" && workerOrUrl instanceof Worker) {
-			this.worker = workerOrUrl;
+		if (
+			typeof workerOrUrl === "object" &&
+			workerOrUrl !== null &&
+			"postMessage" in workerOrUrl
+		) {
+			this.worker = workerOrUrl as Worker;
+		} else if (typeof Worker !== "undefined") {
+			this.worker = new Worker(workerOrUrl as string | URL, { type: "module" });
 		} else {
-			this.worker = new Worker(workerOrUrl, { type: "module" });
+			throw new Error("Worker não disponível no ambiente atual");
 		}
 		this.worker.onmessage = (e: MessageEvent<WorkerOutMsg>) => {
 			if (e.data.type === "ready") {
 				this.isReady = true;
+				this.initError = null;
 				for (const cb of this.readyCallbacks) {
 					cb();
 				}
 				this.readyCallbacks = [];
+				this.readyErrorCallbacks = [];
+			} else if (e.data.type === "error" && !this.isReady) {
+				const err = new Error(e.data.message);
+				this.initError = err;
+				for (const rejectCb of this.readyErrorCallbacks) {
+					rejectCb(err);
+				}
+				this.readyCallbacks = [];
+				this.readyErrorCallbacks = [];
 			}
 		};
 	}
 
 	async waitForReady(): Promise<void> {
 		if (this.isReady) return;
-		return new Promise((resolve) => {
+		if (this.initError) return Promise.reject(this.initError);
+		return new Promise((resolve, reject) => {
 			this.readyCallbacks.push(resolve);
+			this.readyErrorCallbacks.push(reject);
 		});
 	}
 
 	init(manifestUrl: string) {
+		this.initError = null;
 		this.worker.postMessage({ type: "init", manifestUrl });
 	}
 
