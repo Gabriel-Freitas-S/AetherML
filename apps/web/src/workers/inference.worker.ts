@@ -9,6 +9,7 @@ import {
 	type StationFlags,
 	runRecursiveForecast,
 } from "@aetherml/inference-client";
+import { versionedAssetUrl } from "../lib/sw-core";
 
 declare const self: DedicatedWorkerGlobalScope;
 
@@ -137,7 +138,7 @@ async function init(manifestUrl = "/models/registry.json") {
 		}
 
 		// Carrega o manifesto
-		const res = await fetch(manifestUrl);
+		const res = await fetch(manifestUrl, { cache: "no-store" });
 		if (!res.ok) {
 			throw new Error(
 				`Falha ao carregar manifesto ${manifestUrl}: HTTP ${res.status}`,
@@ -149,8 +150,9 @@ async function init(manifestUrl = "/models/registry.json") {
 			featureNames = manifest.feature_names_v1;
 		}
 
-		// Carrega calibration.json obrigatório (require_calibration)
-		const calRes = await fetch("/models/calibration.json");
+		// Carrega calibration.json obrigatório (require_calibration) com tag de versão
+		const calUrl = versionedAssetUrl("/models/calibration.json", version);
+		const calRes = await fetch(calUrl);
 		if (!calRes.ok) {
 			throw new Error(
 				`Falha ao carregar calibration.json: HTTP ${calRes.status}`,
@@ -169,7 +171,7 @@ async function init(manifestUrl = "/models/registry.json") {
 		// Carrega modelos ONNX com verificação SHA-256 e Topologias Saabas em paralelo
 		await Promise.all(
 			targets.map(async (t) => {
-				const modelUrl = `/models/${t}.onnx`;
+				const modelUrl = versionedAssetUrl(`/models/${t}.onnx`, version);
 				const modelRes = await fetch(modelUrl);
 				if (!modelRes.ok) {
 					throw new Error(
@@ -190,7 +192,10 @@ async function init(manifestUrl = "/models/registry.json") {
 				});
 
 				try {
-					const topoUrl = `/models/${t}.topology.json`;
+					const topoUrl = versionedAssetUrl(
+						`/models/${t}.topology.json`,
+						version,
+					);
 					const topoRes = await fetch(topoUrl);
 					if (topoRes.ok) {
 						topologies[t] = await topoRes.json();
