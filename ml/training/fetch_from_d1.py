@@ -68,8 +68,8 @@ def fetch_observed_from_d1(
 ) -> List[Dict[str, Any]]:
     """
     Extrai todos os registros de `observed_pollutants` via API D1 com paginação keyset composta.
-    Paginação: WHERE (timestamp > ?) OR (timestamp = ? AND station_id > ?) ORDER BY timestamp ASC, station_id ASC
-    Garante zero linhas perdidas em empates de timestamp entre as 9 estações.
+    Paginação: WHERE (timestamp > ?) OR (timestamp = ? AND station_id > ?) OR (timestamp = ? AND station_id = ? AND id > ?) ORDER BY timestamp ASC, station_id ASC, id ASC
+    Garante zero linhas perdidas em empates de timestamp e estação entre múltiplas fontes.
     """
     transport = post_fn or default_http_post
     url = build_d1_query_url(account_id, database_id)
@@ -77,19 +77,28 @@ def fetch_observed_from_d1(
     all_rows: List[Dict[str, Any]] = []
     last_timestamp = ""
     last_station_id = ""
+    last_id = ""
 
     sql_template = (
-        "SELECT station_id, timestamp, pm25, pm10, o3, no2, so2, co, source "
+        "SELECT id, station_id, timestamp, pm25, pm10, o3, no2, so2, co, source "
         "FROM observed_pollutants "
-        "WHERE (timestamp > ?) OR (timestamp = ? AND station_id > ?) "
-        "ORDER BY timestamp ASC, station_id ASC "
+        "WHERE (timestamp > ?) OR (timestamp = ? AND station_id > ?) OR (timestamp = ? AND station_id = ? AND id > ?) "
+        "ORDER BY timestamp ASC, station_id ASC, id ASC "
         "LIMIT ?"
     )
 
     while True:
         body = {
             "sql": sql_template,
-            "params": [last_timestamp, last_timestamp, last_station_id, page_size],
+            "params": [
+                last_timestamp,
+                last_timestamp,
+                last_station_id,
+                last_timestamp,
+                last_station_id,
+                last_id,
+                page_size,
+            ],
         }
 
         resp = transport(url, token, body)
@@ -113,8 +122,10 @@ def fetch_observed_from_d1(
         if len(rows) < page_size:
             break
 
-        last_timestamp = rows[-1]["timestamp"]
-        last_station_id = rows[-1]["station_id"]
+        last_row = rows[-1]
+        last_timestamp = str(last_row.get("timestamp") or "")
+        last_station_id = str(last_row.get("station_id") or "")
+        last_id = str(last_row.get("id") or "")
 
     return all_rows
 
@@ -189,13 +200,19 @@ def _norm_ts(ts: str) -> str:
     return ts.replace("Z", "").replace(" ", "T")[:16]
 
 
-def merge_d1_with_meteo(raw_openmeteo: Dict[str, Any], d1_data: Dict[str, Any]) -> Dict[str, Any]:
+def merge_d1_with_meteo(
+    raw_openmeteo: Dict[str, Any],
+    d1_data: Dict[str, Any],
+    allow_d1_regulatory_as_y: bool = False,
+) -> Dict[str, Any]:
     """
     Função pura testável: junta a meteorologia horária de raw_openmeteo (meteo_hourly)
     com a série observada de poluentes do D1 (d1_data), alinhando por timestamp.
     Preserva a estrutura consumida por build_real_dataset e adiciona suporte a MOS:
-    - `insitu_hourly`: mapa por timestamp normalizado contendo ESTRITAMENTE registros
-      com `source == 'IEMA'` (observação real em estação), para uso como alvo Y no MOS.
+    - `insitu_hourly`: mapa por timestamp normalizado contendo registros com `source == 'IEMA'`.
+      CAVEAT REGULATÓRIO: as linhas gravadas pelo worker no D1 representam equivalentes de
+      janelas regulatórias móveis (sub-índices invertidos 24h/8h/1h). Quando `allow_d1_regulatory_as_y=False`,
+      essas linhas NÃO entram como alvo Y horário (a verdade horária canônica provém do parser XLSX).
     - `cams_aq_hourly` e `cams_meteo_hourly`: grade contínua original do Open-Meteo/CAMS
       para fornecer as features X (lags de 24h, lags de 1h, satélite e meteorologia) no MOS
       e evitar perda de janela de lag quando o D1 possui histórico curto.
@@ -234,7 +251,8 @@ def merge_d1_with_meteo(raw_openmeteo: Dict[str, Any], d1_data: Dict[str, Any]) 
             if not k:
                 continue
             if item.get("source") == "IEMA":
-                insitu_by_ts[k] = item
+                if allow_d1_regulatory_as_y:
+                    insitu_by_ts[k] = item
                 d1_by_ts[k] = item
             elif k not in insitu_by_ts:
                 d1_by_ts[k] = item
@@ -354,6 +372,7 @@ def resolve_training_data(
     env_vars: Optional[Dict[str, str]] = None,
     post_fn: Optional[Callable] = None,
     d1_required: bool = False,
+    allow_d1_regulatory_as_y: bool = False,
 ) -> Tuple[str, Dict[str, Any]]:
     """
     Resolve e carrega os dados de treinamento com fallback explícito e aviso.
@@ -426,7 +445,7 @@ def resolve_training_data(
             d1_payload = None
 
     if d1_payload is not None:
-        merged = merge_d1_with_meteo(local_raw, d1_payload)
+        merged = merge_d1_with_meteo(local_raw, d1_payload, allow_d1_regulatory_as_y=allow_d1_regulatory_as_y)
         return "d1", merged
 
     # Fallback explícito com aviso claro

@@ -9,6 +9,9 @@ Este documento consolida:
 
 ## 1. Como Reproduzir a Auditoria Numérica
 
+> [!NOTE]
+> **Ambiente de Execução:** Os comandos Python abaixo com `/home/gabrielfs/.venvs/aetherml/bin/python` devem ser executados dentro do container distrobox (`agy-pessoal`), onde o ambiente virtual e bibliotecas de ML residem (o host foi alterado no upgrade de 13/10).
+
 ```bash
 # Relatório em Markdown (padrão)
 PYTHONPATH=. /home/gabrielfs/.venvs/aetherml/bin/python ml/evaluation/audit_spatial_variance.py
@@ -100,21 +103,32 @@ A convenção do projeto fixa os 9 IDs `ramqar_*`. Cruzando com as 8 estações 
 ### (a) Dataset MOS ($X / Y$) — Escopo `ml/training/`
 1. **Parser `ml/training/fetch_iema_insitu.py` $\to$ `ml/data/iema_insitu_raw.json`**:
    - Usa apenas biblioteca padrão (`zipfile` + `xml.etree.ElementTree.iterparse` + `urllib.request`) para ler as planilhas oficiais `.xlsx` do IEMA-ES (2024, 2025.1, 2025.2 e 2026 Jan–Set, ~6.553h em 2026).
-   - **Filtro de qualidade estrito**: mantém apenas medições numéricas $\ge 0$ cujo `Status <Parâmetro>` adjacente seja `""`, `"VU"` ou `"VI"` (descartando `-9999`, `"IU"`, `"IT"`, `"ID"`, `"!"`).
+   - **Mapeamento estrito de estações e isolamento de colunas (Fix C1 & R3)**: mapa canônico explícito dos 10 blocos físicos (`RGV1` a `RGV10`); blocos industriais ou fora do contrato canônico (`RGV10 Ponta Formosa`, `RGV7 Vila Velha-Centro` e `RGV2 Carapina` — ausente nos 9 IDs de `db/seed.sql`) são mapeados explicitamente como `None` e redefinem `curr_station = None` por coluna (evitando herança acidental de blocos vizinhos). Qualquer emissão de estação fora dos 9 IDs canônicos levanta `ValueError` imediatamente.
+   - **Filtro de qualidade e extração de flags (Fix C2 & R5)**:
+     - No layout moderno (linha 3), flags vêm de `Status <Parâmetro>`.
+     - No layout legado (linha 8 == `"Flag"`), herda o parâmetro da coluna de valor à esquerda (`c_idx - 1`).
+     - Mantém apenas medições numéricas $\ge 0$ cuja flag adjacente seja válida (`""`, `" "`, `"VU"`, `"VR"` ou `"VI"`), descartando sentinelas (`-9999`, `99999`) e flags de erro (`"IU"`, `"IT"`, `"ID"`, `"IF"`, `"!"`).
+     - **Cálculo de Cobertura Real (`total_hours`)**: registros 100% vazios (sem nenhuma medição válida) são descartados antes do sumário, garantindo que `total_hours` reflita a cobertura horária real da estação e não o total de linhas brutas da planilha.
    - **Normalização física e temporal**:
-     - Converte timestamps locais `BRT (UTC-3)` para `UTC` (`+3h`, formato `YYYY-MM-DDTHH:00`) para alinhar 1:1 com `openmeteo_raw.json`.
-     - Converte `VelVento` de `m/s` para `km/h` (`* 3.6`) ao gravar `wind_speed_10m`, pois `row_to_features` divide `wind_speed_10m` por `3.6`.
-   - **Imputação espacial IDW ($1/d^2$)**: para pares `(estação, poluente)` não monitorados pela torre física (ex.: `O3` em `RGV3`/`RGV5`/`RGV9`; `PM25` em `RGV8`) e para as estações virtuais `IEMA_IDW`, interpola na mesma hora $t$ usando $w_i = 1/d_{\text{Haversine}}^2$ das estações RGV válidas, marcando flag `in_situ_interpolated`.
-2. **Join MOS em `ml/training/build_real_dataset.py` e `ml/training/fetch_from_d1.py` (já implementado e testado em `test_mos_pipeline.py`)**:
-   - **Contrato de features**: **`FEATURE_ORDER_V2`** (30 features canônicas definidas em `db/schema.ts` e `packages/inference-client/src/features.ts`, sem reordenação).
-   - **Alvo $Y$**: concentrações horárias brutas $\mu\text{g/m}^3$ in-situ do IEMA (`pm25, pm10, o3, no2, so2`).
-   - **Preditores $X$ (`FEATURE_ORDER_V2`)**:
-     - `pm25_lag24..o3_lag24` (índices 20..23) e `pm25_lag1..so2_lag1` (índices 25..29): **lags in-situ da própria estação** em $t-24\text{h}$ e $t-1\text{h}$ (com fallback por variável para `cams_aq_hourly` quando houver lacuna de manutenção na hora do lag).
-     - Meteorologia (índices 0..8): **meteo in-situ medida na torre da estação** (`TempAr`, `RH`, `VelVento`, `DirVento`, `Press_Ar`, `Radiação`), com fallback por variável para Open-Meteo `cams_meteo_hourly` para `boundary_layer_height` / `pblh_rolling6` (índice 24) e sensores ausentes na torre (ex.: vento em `RGV5`).
+     - Converte timestamps locais `BRT (UTC-3)` para `UTC` (`+3h`, formato `YYYY-MM-DDTHH:00`) para alinhar 1:1 com `openmeteo_raw.json` (truncando horários `:30` da planilha legado para `:00`).
+     - Fator de conversão de CO em 2025.2 (`CO_ppm`): `CO_PPM_TO_UGM3 = 1145.6` ($28.01 / 24.45 \approx 1145.6\ \mu\text{g/m}^3\text{ per ppm}$ a 25 °C e 1 atm, reconciliado física e empiricamente com o IEMA).
+     - Ignora a coluna "Temperatura Interna" (abrigo do sensor) para evitar contaminação de `TempAr`.
+     - **Unidade de Vento (Fix R4)**: Converte `VelVento` in-situ de `m/s` para `km/h` (`* 3.6`) ao gravar `wind_speed_10m`, compatibilizando a entrada com `row_to_features` que divide `wind_speed_10m` por `3.6`.
+   - **Regra de Ausência no Alvo $Y$ (SEM IDW em $Y$) (Fix C3)**: para pares `(estação, poluente)` não monitorados pela estação física (ex.: `O3` em `RGV3`/`RGV5`/`RGV9`; `PM25` em `RGV8`), o alvo $Y$ permanece `None`/ausente (sem imputação IDW no ground truth de treino!). Os consumidores em `train_lightgbm.py` e `evaluate_champion.py` aplicam máscara explícita de finitude (`np.isfinite`) por alvo, treinando e avaliando cada modelo sem NaN silencioso.
+2. **Join MOS em `ml/training/build_real_dataset.py` e `ml/training/fetch_from_d1.py`**:
+   - **CLI Opt-In Explícito (Fix R1)**: `--insitu` em `build_real_dataset.py` é opt-in explícito (`default=None`); a execução padrão não auto-detecta o JSON in-situ silenciosamente.
+   - **Contrato de features**: `FEATURE_ORDER_V2` (em `db/schema.ts`) e `FEATURE_NAMES_V2` (em `packages/inference-client/src/features.ts`) são idênticos em ordem e nomes (30 features: 25 features canônicas da V1 seguidas por 5 lags de 1h: `pm25_lag1`, `pm10_lag1`, `no2_lag1`, `o3_lag1`, `so2_lag1`).
+   - **Alvo $Y$**: concentrações horárias brutas $\mu\text{g/m}^3$ in-situ do IEMA provenientes do parser XLSX (`pm25, pm10, o3, no2, so2`).
+   - **CAVEAT Crítico do D1 (`source='IEMA'`) (Fix R2 & C3-do-córtex)**:
+     - As linhas gravadas no D1 pelo worker representam equivalentes de janelas regulatórias (sub-índices invertidos sobre médias móveis de 24h/8h/1h), **NÃO** verdade horária instantânea. Para evitar contaminação do treino horário, `allow_d1_regulatory_as_y=False` é o padrão fail-safe em `fetch_from_d1.py` / `merge_d1_with_meteo`; o uso como $Y$ exige flag explícita `allow_d1_regulatory_as_y=True`.
+     - Paginação por keyset ordenada estritamente por `(timestamp ASC, station_id ASC, id ASC)`, com desempate total por `id` (UUID), eliminando saltos de linhas em grupos multi-fonte na fronteira de página de 1.000 registros.
+   - **Preditores $X$ (`FEATURE_ORDER_V2` / `FEATURE_NAMES_V2`)**:
+     - `pm25_lag24..o3_lag24` (índices 20..23) e `pm25_lag1..so2_lag1` (índices 25..29): lags in-situ da própria estação em $t-24\text{h}$ e $t-1\text{h}$ (com fallback por variável para `cams_aq_hourly` quando houver lacuna de manutenção na hora do lag).
+     - Meteorologia (índices 0..8): **atualmente dormente ("a implementar")** — `observed_pollutants` no D1 não possui colunas meteorológicas e `fetch_from_d1.py` faz `SELECT` apenas de poluentes. Portanto, as features meteorológicas vêm do Open-Meteo `cams_meteo_hourly` (temperatura, umidade, vento, pressão, radiação e PBLH). O contrato futuro para meteo in-situ requer migração de schema (`temp_c`, `humidity_pct`, `wind_speed_ms`, `wind_dir_deg`) + ajuste no `SELECT` do D1 e merge no builder.
 
 ### (b) Treino + Avaliação com Backtest In-Situ — Escopo `ml/training/` + `ml/evaluation/`
 1. **Split temporal sem vazamento (Zero Data Leakage)**:
-   - Reserva as últimas **168h (7 dias)** da janela histórica validada do IEMA (ex.: `2026-09-24T00:00Z` a `2026-09-30T23:00Z`, ou a janela mais recente extraída do D1) como holdout comum em `extract_holdout_from_raw` (`ml/training/evaluate_champion.py`).
+   - Reserva as últimas **168h (7 dias)** da janela histórica validada do IEMA (ex.: `2026-09-24T00:00Z` a `2026-09-30T23:00Z`) como holdout comum em `extract_holdout_from_raw` (`ml/training/evaluate_champion.py`).
    - Treina os 5 modelos LightGBM Challenger (`order="v2"`, 30 features) exclusivamente nas horas anteriores a `holdout_start` (`end_cutoff`), ajustando a calibração isotônica (`calibrate.py`) sem tocar no holdout.
 2. **Backtest In-Situ Pareado (`evaluate_champion.py`, `eval_holdout.py`, `build_comparison.py`)**:
    - Avalia `ml` (LightGBM V2 calibrado com lags in-situ) vs `ground truth IEMA` e vs `baseline CAMS` nas 9 estações durante as 168h de holdout.
@@ -124,6 +138,7 @@ A convenção do projeto fixa os 9 IDs `ramqar_*`. Cruzando com as 8 estações 
 1. **Worker de Ingestão em Tempo Real (`workers/ingestion`, frente do Veio)**:
    - No cron `:30`, consultar `GET https://qualidadedoarapi.es.gov.br/api/mapa` e `GET https://qualidadedoarapi.es.gov.br/api/mapa/{IdEstacao}` (janela móvel de 48h).
    - Gravar em `observed_pollutants` (D1) com `source = 'IEMA'` (e `'IEMA_IDW'` para estações interpoladas), fornecendo os lags reais `lag1` e `lag24` por estação para a inferência ONNX (`FEATURE_ORDER_V2`) na borda.
+   - Em caso de consulta local com exigência de D1, utilizar a variável de ambiente `D1_REQUIRED=1` (não há flag `--d1-required`).
 2. **Web / Artefatos Públicos (`apps/web`)**:
    - Enquanto os modelos ativos em produção (`apps/web/public/models/`) ainda forem os treinados no CAMS, a UI mantém os avisos honestos já aplicados neste floor (`previsão regional CAMS ~40 km + correção local de meteo; diferenciação por estação virá com in-situ/MOS`).
-   - Assim que o Challenger MOS (`Y=IEMA`, `X=lags/meteo in-situ + PBLH Open-Meteo`) for promovido e o Worker popular `source='IEMA'`, atualizar `model-eval.json`, `comparison-data.json`, `forecast-compare.json` e o rótulo de proveniência para refletir a calibração in-situ ativa.
+   - Assim que o Challenger MOS (`Y=IEMA`, `X=lags in-situ + meteo Open-Meteo`) for promovido e o Worker popular `source='IEMA'`, atualizar `model-eval.json`, `comparison-data.json`, `forecast-compare.json` e o rótulo de proveniência para refletir a calibração in-situ ativa.

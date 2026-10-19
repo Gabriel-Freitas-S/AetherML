@@ -6,6 +6,7 @@ Treina modelos para pm25, pm10, o3, no2, so2 respeitando física de dispersão e
 import os
 import sys
 import json
+import math
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -77,7 +78,25 @@ def train_models(
     )
 
     for target in TARGETS:
-        y = np.array(target_data[target], dtype=np.float32)
+        y_raw = target_data[target]
+        # Máscara explícita por alvo (BLOQUEANTE C3): descarta amostras onde o alvo específico não foi medido (None ou NaN)
+        valid_indices = [
+            i for i, v in enumerate(y_raw)
+            if v is not None and math.isfinite(v)
+        ]
+        if not valid_indices:
+            print(f"[AetherML ML] Alvo {target} sem amostras válidas no dataset — pulando treino.")
+            continue
+
+        X_target = X[valid_indices]
+        y = np.array([y_raw[i] for i in valid_indices], dtype=np.float32)
+
+        n_samples_target = len(X_target)
+        split_idx = int(n_samples_target * 0.8)
+        if split_idx == 0:
+            split_idx = max(1, n_samples_target - 1)
+
+        X_train, X_val = X_target[:split_idx], X_target[split_idx:]
         y_train, y_val = y[:split_idx], y[split_idx:]
 
         # Ajuste de restrições monotônicas específicas por alvo:

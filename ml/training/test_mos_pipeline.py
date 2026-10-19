@@ -14,6 +14,7 @@ Garante que:
 """
 
 import json
+import math
 import os
 import tempfile
 import unittest
@@ -151,7 +152,7 @@ class TestMOSPipeline(unittest.TestCase):
             },
         }
 
-        merged = merge_d1_with_meteo(raw, d1_payload)
+        merged = merge_d1_with_meteo(raw, d1_payload, allow_d1_regulatory_as_y=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             raw_path = os.path.join(tmpdir, "merged_raw.json")
@@ -284,6 +285,163 @@ class TestMOSPipeline(unittest.TestCase):
             # Horas 30..51 (22 horas * 2 estações = 44 amostras antes do holdout)
             self.assertEqual(info["sample_count"], 44)
 
+    def test_mos_training_with_insitu_file_and_d1_caveat(self):
+        """
+        Verifica:
+        1. build_real_dataset integrando diretamente com arquivo in-situ (insitu_path).
+        2. Alvo Y reflete fielmente os dados in-situ sem contaminação CAMS e sem IDW em Y.
+        3. allow_d1_regulatory_as_y=False bloqueia a promoção de linhas D1 regulatórias para Y.
+        """
+        raw = _make_synthetic_raw(hours=50)
+        times = raw["stations"]["ramqar_camburi"]["aq_hourly"]["time"]
+
+        # 1. Teste do CAVEAT: allow_d1_regulatory_as_y=False
+        d1_series = [
+            {
+                "timestamp": times[h] + ":00Z",
+                "pm25": 19.5,
+                "pm10": 35.0,
+                "o3": 25.0,
+                "no2": 15.0,
+                "so2": 5.0,
+                "co": 300.0,
+                "source": "IEMA",
+            }
+            for h in range(30, 35)
+        ]
+        d1_payload = {
+            "summary": {"total_records": len(d1_series)},
+            "stations": {"ramqar_camburi": {"series": d1_series}},
+        }
+        # Com allow_d1_regulatory_as_y=False, insitu_hourly deve ficar VAZIO (sem contaminação regulatória)
+        merged_guarded = merge_d1_with_meteo(raw, d1_payload, allow_d1_regulatory_as_y=False)
+        self.assertEqual(merged_guarded["stations"]["ramqar_camburi"]["insitu_hourly"], {})
+
+        # 2. Teste de build_real_dataset com insitu_path (verdade horária pura dos XLSX)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raw_path = os.path.join(tmpdir, "raw.json")
+            insitu_path = os.path.join(tmpdir, "insitu_raw.json")
+            out_path = os.path.join(tmpdir, "train_mos.json")
+
+            with open(raw_path, "w", encoding="utf-8") as f:
+                json.dump(raw, f)
+
+            insitu_content = {
+                "stations": {
+                    "ramqar_camburi": {
+                        "hourly": {
+                            times[32]: {
+                                "pm25": 14.5,
+                                "pm10": 32.0,
+                                "o3": 45.0,
+                                "no2": 12.0,
+                                "so2": 3.0,
+                                "co": 220.0,
+                            },
+                            times[33]: {
+                                "pm25": 16.0,
+                                "pm10": 34.0,
+                                "o3": 48.0,
+                                "no2": 14.0,
+                                "so2": 3.5,
+                                "co": 240.0,
+                            },
+                        }
+                    }
+                }
+            }
+            with open(insitu_path, "w", encoding="utf-8") as f:
+                json.dump(insitu_content, f)
+
+            info = build_real_dataset(
+                raw_path=raw_path,
+                out_path=out_path,
+                order="v2",
+                insitu_path=insitu_path,
+            )
+            self.assertEqual(info["target_mode"], "mos_insitu")
+            self.assertEqual(info["sample_count"], 2)
+
+            with open(out_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertEqual(saved["target_values"]["pm25"], [14.5, 16.0])
+
+    def test_training_with_partial_pollutant_station_no_nan_bloqueante_c3(self):
+        """
+        BLOQUEANTE C3:
+        Verifica que quando uma estação mede apenas um subconjunto de poluentes (ex.: 3 de 5),
+        e os outros 2 são ausentes (None no JSON), o treino aplica máscara por alvo e:
+        1. target_values preserva None honesto (sem imputação artificial IDW).
+        2. train_models treina sem levantar exceção e sem métricas NaN para os alvos válidos.
+        """
+        raw = _make_synthetic_raw(hours=60)
+        times = raw["stations"]["ramqar_camburi"]["aq_hourly"]["time"]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            raw_path = os.path.join(tmpdir, "raw.json")
+            insitu_path = os.path.join(tmpdir, "insitu_partial.json")
+            out_path = os.path.join(tmpdir, "train_partial.json")
+
+            with open(raw_path, "w", encoding="utf-8") as f:
+                json.dump(raw, f)
+
+            # Estação Cariacica (RGV8) mede PM10, O3, NO2 mas PM25 e SO2 são None!
+            insitu_content = {
+                "stations": {
+                    "ramqar_camburi": {
+                        "hourly": {
+                            times[h]: {
+                                "pm25": None,           # Não medido
+                                "pm10": 25.0 + (h % 5),
+                                "o3": 35.0 + (h % 10),
+                                "no2": 15.0 + (h % 3),
+                                "so2": None,           # Não medido
+                                "co": 150.0,
+                            }
+                            for h in range(30, 55)
+                        }
+                    }
+                }
+            }
+            with open(insitu_path, "w", encoding="utf-8") as f:
+                json.dump(insitu_content, f)
+
+            info = build_real_dataset(
+                raw_path=raw_path,
+                out_path=out_path,
+                order="v2",
+                insitu_path=insitu_path,
+            )
+            self.assertEqual(info["target_mode"], "mos_insitu")
+            self.assertEqual(info["sample_count"], 25)
+
+            with open(out_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+
+            # PM25 deve ter todos None
+            self.assertTrue(all(v is None for v in saved["target_values"]["pm25"]))
+            # PM10 deve ter valores numéricos
+            self.assertTrue(all(isinstance(v, float) for v in saved["target_values"]["pm10"]))
+
+            # Treinar modelos com train_models
+            from ml.training.train_lightgbm import train_models
+            res = train_models(
+                dataset_path=out_path,
+                compact=True,
+            )
+            models = res["models"]
+            metrics = res["metrics"]
+
+            # PM10, O3, NO2 foram treinados e métricas NÃO podem ser NaN
+            for target in ["pm10", "o3", "no2"]:
+                self.assertIn(target, metrics)
+                mae = metrics[target]["mae"]
+                rmse = metrics[target]["rmse"]
+                self.assertFalse(math.isnan(mae), f"MAE de {target} não pode ser NaN!")
+                self.assertFalse(math.isnan(rmse), f"RMSE de {target} não pode ser NaN!")
+                self.assertGreater(mae, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
+

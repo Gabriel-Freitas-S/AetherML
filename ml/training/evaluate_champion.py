@@ -12,6 +12,7 @@ Implementa:
 import os
 import sys
 import shutil
+import math
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Tuple, Optional
 import numpy as np
@@ -33,9 +34,20 @@ BUFFER_LAG_HOURS = 30  # 24h lag + 6h pblh
 
 
 def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Dict[str, float]:
-    """Calcula MAE, RMSE e R2 pareados."""
+    """Calcula MAE, RMSE e R2 pareados ignorando amostras NaN (BLOQUEANTE C3)."""
     yt = np.array(y_true, dtype=np.float64)
     yp = np.array(y_pred, dtype=np.float64)
+    valid_mask = np.isfinite(yt) & np.isfinite(yp)
+    if not np.any(valid_mask):
+        return {
+            "mae": 0.0,
+            "rmse": 0.0,
+            "r2": 0.0,
+            "rmse_raw": 0.0,
+            "mae_raw": 0.0,
+        }
+    yt = yt[valid_mask]
+    yp = yp[valid_mask]
     mae_raw = float(np.mean(np.abs(yt - yp)))
     rmse_raw = float(np.sqrt(np.mean((yt - yp) ** 2)))
     denom = float(np.sum((yt - np.mean(yt)) ** 2))
@@ -139,10 +151,12 @@ def extract_holdout_from_raw(
                 if norm_k in insitu_map:
                     obs_y = insitu_map[norm_k]
                     aq_now = {t: obs_y.get(t) for t in TARGETS}
+                    if not any(v is not None and math.isfinite(v) for v in aq_now.values()):
+                        raise ValueError(f"Todos os alvos None em {st_id} às {ts}")
                 else:
                     aq_now = {t: aq[AQ_KEYS[t]][gi] for t in TARGETS}
-                if any(v is None for v in aq_now.values()):
-                    raise ValueError(f"Alvo None em {st_id} às {ts}")
+                    if any(v is None for v in aq_now.values()):
+                        raise ValueError(f"Alvo None em {st_id} às {ts}")
 
                 m_now = _meteo_row(met, gi)
                 if any(v is None for v in m_now.values()):
@@ -168,7 +182,10 @@ def extract_holdout_from_raw(
                     if any(v is None for v in lags1.values()):
                         raise ValueError(f"Lag1 None em {st_id} às {ts}")
 
-                aq_now_float = {t: float(aq_now[t]) for t in TARGETS}
+                aq_now_float = {
+                    t: (float(aq_now[t]) if aq_now[t] is not None and math.isfinite(aq_now[t]) else np.nan)
+                    for t in TARGETS
+                }
                 lags_float = {k: float(v) for k, v in lags.items()}
                 lags1_float = {k: float(v) for k, v in lags1.items()} if lags1 is not None else None
 
