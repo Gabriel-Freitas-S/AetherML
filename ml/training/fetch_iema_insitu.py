@@ -300,12 +300,6 @@ def parse_iema_xlsx(data: Union[bytes, str]) -> List[Dict[str, Any]]:
     col_mapping: Dict[int, Dict[str, Any]] = {}
 
     station_row = header_rows.get(2, {})
-    last_station = None
-    for c_idx in sorted(station_row.keys()):
-        st_val = station_row[c_idx]
-        norm = normalize_station_name(st_val)
-        if norm:
-            last_station = norm
 
     # Re-mapear cada coluna com preenchimento da estação para a direita
     curr_station = None
@@ -332,8 +326,8 @@ def parse_iema_xlsx(data: Union[bytes, str]) -> List[Dict[str, Any]]:
             val_flag_str = header_rows.get(8, {}).get(c_idx, "").strip()
             is_flag = "flag" in val_flag_str.lower()
             if is_flag:
-                # FIX C2: no formato legado, o nome do parâmetro está apenas na coluna de valor.
-                # A coluna de flag herda o parâmetro da coluna imediatamente à esquerda (c_idx - 1).
+                # FIX C2 & F1: a coluna de flag herda o parâmetro da coluna de valor à esquerda (c_idx - 1).
+                # Registra value_col e vincula flag_col na coluna de valor anterior para pareamento 1:1.
                 if (c_idx - 1) in col_mapping and col_mapping[c_idx - 1]["station_id"] == curr_station:
                     prev_meta = col_mapping[c_idx - 1]
                     col_mapping[c_idx] = {
@@ -341,7 +335,9 @@ def parse_iema_xlsx(data: Union[bytes, str]) -> List[Dict[str, Any]]:
                         "param": prev_meta["param"],
                         "unit": prev_meta["unit"],
                         "is_flag": True,
+                        "value_col": c_idx - 1,
                     }
+                    col_mapping[c_idx - 1]["flag_col"] = c_idx
             else:
                 param_str = header_rows.get(5, {}).get(c_idx, "")
                 mapped = _map_param_name(param_str)
@@ -371,6 +367,10 @@ def parse_iema_xlsx(data: Union[bytes, str]) -> List[Dict[str, Any]]:
                     "unit": mapped[1],
                     "is_flag": is_flag,
                 }
+                if is_flag:
+                    col_mapping[c_idx]["value_col"] = c_idx - 1
+                    if (c_idx - 1) in col_mapping:
+                        col_mapping[c_idx - 1]["flag_col"] = c_idx
 
     records: List[Dict[str, Any]] = []
 
@@ -387,59 +387,54 @@ def parse_iema_xlsx(data: Union[bytes, str]) -> List[Dict[str, Any]]:
             continue
 
         # Agrupar medições da linha por estação
-        station_concs: Dict[str, Dict[str, Any]] = {}
-        station_flags: Dict[str, Dict[str, str]] = {}
+        active_stations = list(dict.fromkeys(meta["station_id"] for meta in col_mapping.values() if not meta["is_flag"]))
+        station_concs: Dict[str, Dict[str, Any]] = {st_id: {} for st_id in active_stations}
 
         for c_idx, meta in col_mapping.items():
+            if meta["is_flag"]:
+                continue
             st_id = meta["station_id"]
             param = meta["param"]
             val_str = row.get(c_idx, "").strip()
+            if not val_str:
+                continue
 
-            if st_id not in station_concs:
-                station_concs[st_id] = {}
-                station_flags[st_id] = {}
+            # FIX F1: Pareamento flag <-> valor por par de colunas (value_col + 1).
+            # Impede que a flag vazia de uma coluna redundante sobrescreva a flag de erro de outra.
+            flag_col = meta.get("flag_col", c_idx + 1)
+            flag_str = row.get(flag_col, "").strip()
+            if not is_valid_flag(flag_str):
+                continue
 
-            if meta["is_flag"]:
-                station_flags[st_id][param] = val_str
-            else:
-                if val_str != "":
-                    try:
-                        num = float(val_str)
-                        if math.isfinite(num) and num >= 0 and num not in (99999, 9999, -9999):
-                            # Conversão de unidades
-                            if meta["unit"] == "ppm" and param == "co":
-                                num = round(num * CO_PPM_TO_UGM3, 3)
-                            elif meta["unit"] == "ms" and param == "wind_speed_10m":
-                                # FIX R4: converte m/s da planilha para km/h (* 3.6), compatível com row_to_features
-                                num = round(num * 3.6, 2)
-                            station_concs[st_id][param] = num
-                    except ValueError:
-                        pass
+            try:
+                num = float(val_str)
+                if math.isfinite(num) and num >= 0 and num not in (99999, 9999, -9999):
+                    # Conversão de unidades
+                    if meta["unit"] == "ppm" and param == "co":
+                        num = round(num * CO_PPM_TO_UGM3, 3)
+                    elif meta["unit"] == "ms" and param == "wind_speed_10m":
+                        # FIX R4: converte m/s da planilha para km/h (* 3.6), compatível com row_to_features
+                        num = round(num * 3.6, 2)
+                    station_concs[st_id][param] = num
+            except ValueError:
+                pass
 
         for st_id, concs in station_concs.items():
-            flags = station_flags.get(st_id, {})
-            # Filtrar por flags de validação
-            filtered_concs = {}
-            for p, v in concs.items():
-                f = flags.get(p, "")
-                if is_valid_flag(f):
-                    filtered_concs[p] = v
-
             rec = {
                 "station_id": st_id,
                 "timestamp_utc": ts_utc,
-                "pm25": filtered_concs.get("pm25"),
-                "pm10": filtered_concs.get("pm10"),
-                "o3": filtered_concs.get("o3"),
-                "no2": filtered_concs.get("no2"),
-                "so2": filtered_concs.get("so2"),
-                "co": filtered_concs.get("co"),
-                "temperature_2m": filtered_concs.get("temperature_2m"),
-                "relative_humidity_2m": filtered_concs.get("relative_humidity_2m"),
-                "wind_speed_10m": filtered_concs.get("wind_speed_10m"),
-                "wind_direction_10m": filtered_concs.get("wind_direction_10m"),
-                "pressure_msl": filtered_concs.get("pressure_msl"),
-                "shortwave_radiation": filtered_concs.get("shortwave_radiation"),
+                "pm25": concs.get("pm25"),
+                "pm10": concs.get("pm10"),
+                "o3": concs.get("o3"),
+                "no2": concs.get("no2"),
+                "so2": concs.get("so2"),
+                "co": concs.get("co"),
+                "temperature_2m": concs.get("temperature_2m"),
+                "relative_humidity_2m": concs.get("relative_humidity_2m"),
+                "wind_speed_10m": concs.get("wind_speed_10m"),
+                "wind_direction_10m": concs.get("wind_direction_10m"),
+                "pressure_msl": concs.get("pressure_msl"),
+                "shortwave_radiation": concs.get("shortwave_radiation"),
             }
             records.append(rec)
 

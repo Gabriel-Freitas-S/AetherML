@@ -533,6 +533,61 @@ class TestFetchIemaInsitu(unittest.TestCase):
         # Assert de unidade: 2.5 m/s -> 9.0 km/h
         self.assertAlmostEqual(records[0]["wind_speed_10m"], 9.0, places=2)
 
+    def test_required_f1_dual_value_column_flag_pairing_discards_invalid(self):
+        """
+        REQUIRED F1:
+        Quando (estação, parâmetro) possui DUAS colunas de valor (ex.: sensor primário e redundante):
+        Col B (valor: 36.3 m/s = 130.8 km/h), Col C (flag: 'IT' inválida)
+        Col D (valor: ''), Col E (flag: '' vazia)
+        A flag vazia da Col E NÃO pode sobrescrever a flag da Col B e liberar o valor inválido de 130.8.
+        O valor da Col B deve ser descartado com base na sua flag própria (Col C).
+        """
+        sheet_xml = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            "<sheetData>"
+            '<row r="1"><c r="A1" t="inlineStr"><is><t>Relatório</t></is></c></row>'
+            '<row r="2">'
+            '<c r="A2" t="inlineStr"><is><t>DataHora</t></is></c>'
+            '<c r="B2" t="inlineStr"><is><t>EMQAr - RGV4 - Enseada do Sua</t></is></c>'
+            '<c r="C2" t="inlineStr"><is><t>EMQAr - RGV4 - Enseada do Sua</t></is></c>'
+            '<c r="D2" t="inlineStr"><is><t>EMQAr - RGV4 - Enseada do Sua</t></is></c>'
+            '<c r="E2" t="inlineStr"><is><t>EMQAr - RGV4 - Enseada do Sua</t></is></c>'
+            "</row>"
+            '<row r="3">'
+            '<c r="A3" t="inlineStr"><is><t>Data</t></is></c>'
+            '<c r="B3" t="inlineStr"><is><t>VelVento (m/s)</t></is></c>'
+            '<c r="C3" t="inlineStr"><is><t>Status VelVento</t></is></c>'
+            '<c r="D3" t="inlineStr"><is><t>VelVento (m/s)</t></is></c>'
+            '<c r="E3" t="inlineStr"><is><t>Status VelVento</t></is></c>'
+            "</row>"
+            '<row r="4">'
+            '<c r="A4" t="inlineStr"><is><t>2024-02-21 14:00:00</t></is></c>'
+            '<c r="B4"><v>36.333</v></c>'  # 36.333 m/s * 3.6 ≈ 130.8 km/h com flag IT
+            '<c r="C4" t="inlineStr"><is><t>IT</t></is></c>'
+            '<c r="D4" t="inlineStr"><is><t></t></is></c>'  # Coluna redundante vazia
+            '<c r="E4" t="inlineStr"><is><t></t></is></c>'  # Flag vazia que não pode liberar Col B
+            "</row>"
+            # Linha 5: Col B tem flag inválida 'IT', mas Col D tem valor VÁLIDO com flag 'VU'
+            '<row r="5">'
+            '<c r="A5" t="inlineStr"><is><t>2024-02-21 15:00:00</t></is></c>'
+            '<c r="B5"><v>36.333</v></c>'  # Flag IT inválida
+            '<c r="C5" t="inlineStr"><is><t>IT</t></is></c>'
+            '<c r="D5"><v>5.0</v></c>'     # 5.0 m/s * 3.6 = 18.0 km/h com flag VU válida
+            '<c r="E5" t="inlineStr"><is><t>VU</t></is></c>'
+            "</row>"
+            "</sheetData>"
+            "</worksheet>"
+        )
+        records = parse_iema_xlsx(_build_minimal_xlsx(sheet_xml))
+        self.assertEqual(len(records), 2)
+        # Linha 4: valor com flag IT deve ser descartado (None), não aceitar 130.8 km/h!
+        self.assertIsNone(records[0]["wind_speed_10m"], "Valor com flag IT não pode ser liberado por flag vazia da coluna redundante")
+        # Linha 5: valor da coluna redundante válida deve ser aceito (18.0 km/h), descartando o valor inválido de Col B
+        self.assertIsNotNone(records[1]["wind_speed_10m"])
+        self.assertAlmostEqual(records[1]["wind_speed_10m"], 18.0, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()
+
