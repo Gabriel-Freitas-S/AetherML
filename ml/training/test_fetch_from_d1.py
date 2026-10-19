@@ -48,8 +48,8 @@ def test_pagination_and_transport_keyset():
         last_ts = params[0] if params else ""
         last_st = params[2] if len(params) > 2 else ""
 
-        assert "ORDER BY timestamp ASC, station_id ASC" in sql, "SQL deve ordenar por timestamp e station_id"
-        assert "(timestamp > ?) OR (timestamp = ? AND station_id > ?)" in sql, "SQL deve usar keyset composta"
+        assert "ORDER BY timestamp ASC, station_id ASC, id ASC" in sql, "SQL deve ordenar por timestamp, station_id e id"
+        assert "(timestamp > ?) OR (timestamp = ? AND station_id > ?) OR (timestamp = ? AND station_id = ? AND id > ?)" in sql, "SQL deve usar keyset composta com desempate por id"
 
         if last_ts == "":
             rows = [
@@ -153,12 +153,15 @@ def test_pagination_with_tied_timestamps_across_9_stations():
         params = body.get("params", [])
         last_ts = params[0]
         last_st = params[2]
-        limit = params[3]
+        last_id = params[5]
+        limit = params[6]
 
-        # Simula: WHERE (timestamp > ?) OR (timestamp = ? AND station_id > ?)
+        # Simula: WHERE (timestamp > ?) OR (timestamp = ? AND station_id > ?) OR (timestamp = ? AND station_id = ? AND id > ?)
         filtered = [
             r for r in all_dataset
-            if (r["timestamp"] > last_ts) or (r["timestamp"] == last_ts and r["station_id"] > last_st)
+            if (r["timestamp"] > last_ts)
+            or (r["timestamp"] == last_ts and r["station_id"] > last_st)
+            or (r["timestamp"] == last_ts and r["station_id"] == last_st and r.get("id", "") > last_id)
         ]
         page = filtered[:limit]
         return {
@@ -180,9 +183,72 @@ def test_pagination_with_tied_timestamps_across_9_stations():
         f"PERDA DE LINHAS DETECTADA! Esperado 540 registros, obtido {len(rows)} "
         f"(perda de {540 - len(rows)} linhas em empates)"
     )
-    # Garante que não há duplicatas
     keys = [(r["timestamp"], r["station_id"]) for r in rows]
     assert len(set(keys)) == 540, "Não deve haver duplicatas na paginação"
+
+
+def test_pagination_multisource_tiebreaker_id_c3_cortex():
+    """
+    BLOQUEANTE C3-DO-CÓRTEX:
+    Verifica que na fronteira de página de 1000 (ou qualquer page_size),
+    quando há múltiplas linhas com MESMO (timestamp, station_id) — ex: CAMS + IEMA,
+    o desempate por `id` garante ordem total e zero linhas puladas.
+    """
+    records = []
+    # 25 timestamps, 2 estações, cada estação tem 3 fontes por timestamp (IEMA, cams-forecast, cams-reanalysis)
+    # Total: 25 * 2 * 3 = 150 linhas
+    import uuid
+    for h in range(25):
+        ts = f"2026-07-01T{h:02d}:00:00Z"
+        for st in ["ramqar_camburi", "ramqar_ibes"]:
+            for src in ["IEMA", "open-meteo-cams-forecast", "open-meteo-cams-reanalysis"]:
+                records.append({
+                    "id": str(uuid.uuid4()),
+                    "station_id": st,
+                    "timestamp": ts,
+                    "source": src,
+                    "pm25": 10.0,
+                    "pm10": 20.0,
+                    "o3": 30.0,
+                    "no2": 5.0,
+                    "so2": 2.0,
+                    "co": 100.0,
+                })
+
+    records.sort(key=lambda r: (r["timestamp"], r["station_id"], r["id"]))
+
+    def mock_multisource_transport(url: str, token: str, body: Dict[str, Any]) -> Dict[str, Any]:
+        params = body.get("params", [])
+        last_ts = params[0]
+        last_st = params[2]
+        last_id = params[5]
+        limit = params[6]
+
+        filtered = [
+            r for r in records
+            if (r["timestamp"] > last_ts)
+            or (r["timestamp"] == last_ts and r["station_id"] > last_st)
+            or (r["timestamp"] == last_ts and r["station_id"] == last_st and r["id"] > last_id)
+        ]
+        return {
+            "success": True,
+            "errors": [],
+            "messages": [],
+            "result": [{"results": filtered[:limit], "success": True}],
+        }
+
+    # page_size=7 corta grupos no meio de (timestamp, station_id)
+    fetched = fetch_observed_from_d1(
+        account_id="acc",
+        database_id="db",
+        token="tok",
+        post_fn=mock_multisource_transport,
+        page_size=7,
+    )
+
+    assert len(fetched) == 150, f"Esperado 150 registros multi-fonte, obtido {len(fetched)}"
+    fetched_ids = [r["id"] for r in fetched]
+    assert len(set(fetched_ids)) == 150, "Todas as 150 IDs únicas devem ser paginadas sem duplicação nem perda"
 
 
 def test_d1_http_error():
@@ -514,7 +580,12 @@ def test_merge_d1_separates_insitu_iema_from_cams_and_prioritizes_iema():
         },
     }
 
-    merged = merge_d1_with_meteo(raw_meteo, d1_payload)
+    # Por padrão (fail-safe R2), allow_d1_regulatory_as_y=False bloqueia promoção para Y
+    merged_guarded = merge_d1_with_meteo(raw_meteo, d1_payload)
+    assert merged_guarded["stations"]["ramqar_camburi"]["insitu_hourly"] == {}
+
+    # Com opt-in explícito (allow_d1_regulatory_as_y=True), insitu_hourly é preenchido
+    merged = merge_d1_with_meteo(raw_meteo, d1_payload, allow_d1_regulatory_as_y=True)
     st = merged["stations"]["ramqar_camburi"]
     # IEMA deve vencer no empate de timestamp em 01:00
     assert st["aq_hourly"]["pm2_5"] == [11.5, 19.5]
@@ -534,6 +605,7 @@ if __name__ == "__main__":
     test_build_d1_query_url()
     test_pagination_and_transport_keyset()
     test_pagination_with_tied_timestamps_across_9_stations()
+    test_pagination_multisource_tiebreaker_id_c3_cortex()
     test_d1_http_error()
     test_d1_invalid_json_payload()
     test_format_d1_observed_payload_separates_sources_and_has_extracted_at()
@@ -543,4 +615,4 @@ if __name__ == "__main__":
     test_fallback_to_local_when_d1_unconfigured()
     test_default_http_post_urllib_transport()
     test_merge_d1_separates_insitu_iema_from_cams_and_prioritizes_iema()
-    print("[OK] test_fetch_from_d1: 12/12 verdes")
+    print("[OK] test_fetch_from_d1: 13/13 verdes")

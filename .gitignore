@@ -63,3 +63,7 @@ Thumbs.db
 graphify-out/cache/
 tmp/
 temp/
+
+# ML raw in-situ caches & big data (re-downloaded or pulled from R2)
+ml/data/cache_xlsx/
+ml/data/iema_insitu_raw.json

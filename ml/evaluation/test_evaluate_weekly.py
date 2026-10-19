@@ -185,9 +185,9 @@ def test_persist_weekly_evaluations_to_d1():
     assert reg_params[0] == "v2026.38.5"
     assert reg_params[4] != "registry-managed"
     assert len(reg_params[4]) == 64  # SHA-256 real de pm25.onnx em models/registry.json
-    assert reg_params[8] == 0.39     # test_mae real de pm25
-    assert reg_params[9] == 0.59     # test_rmse real de pm25
-    assert reg_params[10] == 0.9711  # test_r2 real de pm25
+    assert reg_params[8] == 0.68     # test_mae real de pm25
+    assert reg_params[9] == 1.16     # test_rmse real de pm25
+    assert reg_params[10] == 0.8514  # test_r2 real de pm25
 
     # Verifica que result[0].success == False não conta como salvo
     def mock_post_inner_fail(url: str, token: str, body: Dict[str, Any]) -> Dict[str, Any]:

@@ -179,17 +179,28 @@ def build_real_dataset(
     out_path: str = "ml/data/train_dataset_real.json",
     end_cutoff: str | None = None,
     order: str = "v1",
+    insitu_path: str | None = None,
 ) -> Dict[str, Any]:
     """end_cutoff (ISO 'YYYY-MM-DDTHH'): ignora horas de treino após esse
     instante — usado para reservar o holdout fora do treino.
     order 'v2': 30 features (V1 + 5 lags de 1h).
-    Modo MOS (`target_mode='mos_insitu'`): quando `insitu_hourly` (source='IEMA')
+    Modo MOS (`target_mode='mos_insitu'`): quando `insitu_hourly` (ou `insitu_path`)
     está presente, treina com Y=IEMA e X=CAMS+meteo (`cams_aq_hourly` + `cams_meteo_hourly`).
     Caso contrário (`target_mode='cams_fallback'`), mantém o comportamento atual (Y=CAMS, X=CAMS+meteo).
     """
     names = FEATURE_NAMES_V2 if order == "v2" else FEATURE_NAMES
     with open(raw_path, "r", encoding="utf-8") as f:
         raw = json.load(f)
+
+    if insitu_path and os.path.exists(insitu_path):
+        with open(insitu_path, "r", encoding="utf-8") as f_insitu:
+            insitu_payload = json.load(f_insitu)
+        insitu_stations = insitu_payload.get("stations", {})
+        for st_id, st_info in insitu_stations.items():
+            if st_id in raw.get("stations", {}):
+                raw["stations"][st_id]["insitu_hourly"] = st_info.get("hourly") or {}
+        raw["provenance"] = raw.get("provenance", {})
+        raw["provenance"]["target_mode"] = "mos_insitu"
 
     all_features: List[List[float]] = []
     all_targets: Dict[str, List[float]] = {t: [] for t in TARGETS}
@@ -260,12 +271,14 @@ def build_real_dataset(
             try:
                 if target_mode == "mos_insitu":
                     aq_now = {t: obs_y.get(t) for t in TARGETS}
+                    if not any(v is not None and math.isfinite(v) for v in aq_now.values()):
+                        raise ValueError("alvo None (todos nulos)")
                 else:
                     assert aq_y is not None
                     aq_now = {t: aq_y[AQ_KEYS[t]][i] for t in TARGETS}
+                    if any(v is None or not math.isfinite(v) for v in aq_now.values()):
+                        raise ValueError("alvo None")
 
-                if any(v is None for v in aq_now.values()):
-                    raise ValueError("alvo None")
                 m_now = {
                     k: (
                         obs_y.get(k)
@@ -282,7 +295,7 @@ def build_real_dataset(
                         "boundary_layer_height",
                     )
                 }
-                if any(v is None for v in m_now.values()):
+                if any(v is None or not math.isfinite(v) for v in m_now.values()):
                     raise ValueError("meteo None")
                 if target_mode == "mos_insitu":
                     lags = {
@@ -300,7 +313,7 @@ def build_real_dataset(
                         "o3": aq_x["ozone"][i - 24],
                         "pblh6": sum(met_x["boundary_layer_height"][i - 6 : i]) / 6.0,
                     }
-                if any(v is None for v in lags.values()):
+                if any(v is None or not math.isfinite(v) for v in lags.values()):
                     raise ValueError("lag None")
                 lags1 = None
                 if order == "v2":
@@ -315,14 +328,19 @@ def build_real_dataset(
                         }
                     else:
                         lags1 = {t: aq_x[AQ_KEYS[t]][i - 1] for t in LAG1_TARGETS}
-                    if any(v is None for v in lags1.values()):
+                    if any(v is None or not math.isfinite(v) for v in lags1.values()):
                         raise ValueError("lag1 None")
                 feats = row_to_features(
                     m_now, aq_now, ts, lags, flags, order=order, lags1=lags1
                 )
                 all_features.append(feats)
                 for t in TARGETS:
-                    all_targets[t].append(round(float(aq_now[t]), 2))
+                    val = aq_now[t]
+                    all_targets[t].append(
+                        round(float(val), 2)
+                        if (val is not None and math.isfinite(val))
+                        else None
+                    )
             except (ValueError, TypeError, KeyError):
                 skipped += 1
                 continue
@@ -360,4 +378,24 @@ def build_real_dataset(
 
 
 if __name__ == "__main__":
-    build_real_dataset()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Construtor de Dataset Real (Open-Meteo / MOS In-Situ)")
+    parser.add_argument("--raw", default="ml/data/openmeteo_raw.json", help="Arquivo raw do Open-Meteo")
+    parser.add_argument("--out", default="ml/data/train_dataset_real.json", help="Arquivo JSON de saída")
+    parser.add_argument("--order", default="v1", choices=["v1", "v2"], help="Ordem canônica das features (v1 ou v2)")
+    parser.add_argument("--end-cutoff", default=None, help="Cutoff temporal para holdout (YYYY-MM-DDTHH)")
+    parser.add_argument(
+        "--insitu",
+        default=None,
+        help="Arquivo JSON com medições horárias in-situ do IEMA (ativa modo MOS de forma explícita)",
+    )
+    args = parser.parse_args()
+
+    build_real_dataset(
+        raw_path=args.raw,
+        out_path=args.out,
+        end_cutoff=args.end_cutoff,
+        order=args.order,
+        insitu_path=args.insitu,
+    )
