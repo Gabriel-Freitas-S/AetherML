@@ -107,7 +107,7 @@ A convenção do projeto fixa os 9 IDs `ramqar_*`. Cruzando com as 8 estações 
    - **Filtro de qualidade e extração de flags (Fix C2 & R5)**:
      - No layout moderno (linha 3), flags vêm de `Status <Parâmetro>`.
      - No layout legado (linha 8 == `"Flag"`), herda o parâmetro da coluna de valor à esquerda (`c_idx - 1`).
-     - Mantém apenas medições numéricas $\ge 0$ cuja flag adjacente seja válida (`""`, `" "`, `"VU"`, `"VR"` ou `"VI"`), descartando sentinelas (`-9999`, `99999`) e flags de erro (`"IU"`, `"IT"`, `"ID"`, `"IF"`, `"!"`).
+     - **Pareamento Estrito de Flags por Par de Colunas (Fix F1)**: quando uma estação possui múltiplas colunas para o mesmo parâmetro (ex.: sensores de vento principal e redundante, ou CO em ppm e $\mu\text{g/m}^3$), a flag é validada estritamente por par (`value_col` com a sua respectiva `flag_col = value_col + 1`), impedindo que uma flag vazia de coluna redundante sobrescreva a flag de erro da coluna principal. Mantém apenas medições numéricas $\ge 0$ cuja flag específica do par seja válida (`""`, `" "`, `"VU"`, `"VR"` ou `"VI"`), descartando sentinelas (`-9999`, `99999`) e flags de erro (`"IU"`, `"IT"`, `"ID"`, `"IF"`, `"!"`).
      - **Cálculo de Cobertura Real (`total_hours`)**: registros 100% vazios (sem nenhuma medição válida) são descartados antes do sumário, garantindo que `total_hours` reflita a cobertura horária real da estação e não o total de linhas brutas da planilha.
    - **Normalização física e temporal**:
      - Converte timestamps locais `BRT (UTC-3)` para `UTC` (`+3h`, formato `YYYY-MM-DDTHH:00`) para alinhar 1:1 com `openmeteo_raw.json` (truncando horários `:30` da planilha legado para `:00`).

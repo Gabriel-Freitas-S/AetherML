@@ -214,9 +214,13 @@ Ao cruzar [`db/seed.sql`](../../db/seed.sql) com a tabela oficial do IEMA (`http
 | `ramqar_vitoria_centro` | Vitória Centro | `-20.3196, -40.3370` | **EMQAr - RGV5 — Vitória - Centro** (Min. Fazenda, Vitória) · `IdEstacao=5` | `-20.32070, -40.33297` | 0,44 km | **Ativa (API + XLSX):** `PM25, PM10, NO2, SO2, CO` + Temp/RH |
 | `ramqar_ibes` | IBES - Vila Velha | `-20.3478, -40.3068` | **EMQAr - RGV6 — Vila Velha - IBES** (4º BPM, Vila Velha) · `IdEstacao=6` | `-20.34865, -40.31742` | 1,11 km | **Ativa (API + XLSX):** `PM25, PM10, O3, NO2, SO2, CO` + Meteo |
 | `ramqar_cariacica` | Cariacica Centro | `-20.2634, -40.4166` | **EMQAr - RGV8 — Vila Capixaba** (CEASA, Cariacica) · `IdEstacao=8` | `-20.34201, -40.40218` | 8,87 km | **Ativa (API + XLSX):** `O3, NO2, SO2, CO, PM10` (`PM25` desabilitado em 2026) + Meteo |
-| `ramqar_serra_jacupemba` *(divergente)* | Jacupemba - Serra *(nota: Jacupemba fica em Aracruz)* | `-20.1750, -40.1900` | **EMQAr - RGV9 — Cidade Continental** (Serra) · `IdEstacao=9` *(ou **EMQAr - RGV2 — Carapina**, Serra, `IdEstacao=2`)* | `RGV9`: `-20.22062, -40.22767`<br>`RGV2`: `-20.23220, -40.25489` | 6,41 km (`RGV9`) | **`RGV9` Ativa (API + XLSX):** `PM25, PM10, NO2, SO2`<br>**`RGV2` Ativa (XLSX):** `PM25, PM10` + Meteo completa |
-| `ramqar_paul` *(divergente)* | Paul - Vila Velha | `-20.3297, -40.2960` | **EMQAr - RGV7 — Vila Velha - Centro** (Colégio Marista, Vila Velha) *(desativada; histórico até 2020)* ou mapear `RGV2 Carapina` | `RGV7`: `-20.33709, -40.29022` | 1,02 km (`RGV7`) | `RGV7` desativada pelo IEMA; para operação contínua 2026 usar **EMQAr - RGV2 (Carapina)** ou interpolação IDW (`RGV4` + `RGV5` + `RGV6`) |
-| `ramqar_vila_velha_fundo` *(divergente)* | Vila Velha Interior | `-20.3700, -40.3300` | Sem estação física no sul de Vila Velha (ou substituir por `EMQAr - RGV2 Carapina`) | — | — | Para manter o contrato de 9 IDs `ramqar_*`, imputar via **IDW Haversine inverso (`1/d²`)** a partir de `RGV6 (IBES, a 2,7 km)` + `RGV8 (Cariacica)` + `RGV4 (Suá)` |
+| `ramqar_serra_jacupemba` *(divergente)* | Jacupemba - Serra *(nota: Jacupemba fica em Aracruz)* | `-20.1750, -40.1900` | **EMQAr - RGV9 — Cidade Continental** (Serra) · `IdEstacao=9` | `RGV9`: `-20.22062, -40.22767` | 6,41 km (`RGV9`) | **`RGV9` Ativa (API + XLSX):** `PM25, PM10, NO2, SO2` |
+| `ramqar_paul` *(divergente)* | Paul - Vila Velha | `-20.3297, -40.2960` | Sem estação física ativa em Paul (`RGV7` desativada em 2020) | `RGV7`: `-20.33709, -40.29022` | 1,02 km (`RGV7`) | Para manter coerência com Vila Velha, recebe interpolação IDW local (`RGV4` + `RGV5` + `RGV6`) |
+| `ramqar_vila_velha_fundo` *(divergente)* | Vila Velha Interior | `-20.3700, -40.3300` | Sem estação física no sul de Vila Velha | — | — | Para manter o contrato de 9 IDs `ramqar_*`, imputar via **IDW Haversine inverso (`1/d²`)** a partir de `RGV6 (IBES, a 2,7 km)` + `RGV8 (Cariacica)` + `RGV4 (Suá)` |
+
+> [!NOTE]
+> **Descarte Canônico de RGV2 (Carapina):**
+> A estação física `EMQAr - RGV2 (Carapina)` está ativa na planilha XLSX do IEMA (`PM25, PM10` + meteo), porém **não existe no contrato canônico de 9 estações** de `db/seed.sql`. Por decisão de governança arquitetural, `RGV2` é **descartada formalmente por contrato** pelo parser (`fetch_iema_insitu.py`), **NÃO sendo mapeada para `ramqar_serra_jacupemba` nem para `ramqar_paul`**, para não contradizer o schema canônico nem induzir distorções geográficas (Carapina fica na Serra, a 13 km de Paul em Vila Velha).
 
 ### 4.1. Identificação dos `IdEstacao` 11 a 16 em `/api/mapa` (Rede RAMQAr-Sul) e Decisão sobre o Contrato de 9 Estações
 
@@ -236,9 +240,10 @@ Embora o município de Guarapari integre juridicamente a RMGV (Lei Complementar 
 
 > [!IMPORTANT]
 > **Decisão recomendada para o contrato de 9 estações (`db/seed.sql`):**
-> Como as convenções do AetherML (`AGENTS.md` / `.agents/rules/aetherml-conventions.md`) fixam os 9 IDs `ramqar_*` de `db/seed.sql`, recomendamos:
-> 1. Atualizar as coordenadas (`latitude`, `longitude`) das 6 estações diretas + associar `ramqar_serra_jacupemba` → `EMQAr - RGV9 (Cidade Continental, Serra)` e `ramqar_paul` → `EMQAr - RGV2 (Carapina, Serra)` (ou manter `ramqar_paul` e `ramqar_vila_velha_fundo` alimentadas por interpolação espacial IDW ponderada por Haversine $1/d^2$ das estações físicas vizinhas `RGV6 IBES`, `RGV4 Suá` e `RGV5 Centro`).
-> 2. Assim, **todas as 8 estações físicas ativas da RGV (`RGV1, RGV2, RGV3, RGV4, RGV5, RGV6, RGV8, RGV9`) entram diretamente no pipeline**.
+> Como as convenções do AetherML (`AGENTS.md` / `.agents/rules/aetherml-conventions.md`) fixam os 9 IDs `ramqar_*` de `db/seed.sql`:
+> 1. Atualizar as coordenadas (`latitude`, `longitude`) das 6 estações diretas + associar `ramqar_serra_jacupemba` → `EMQAr - RGV9 (Cidade Continental, Serra)`.
+> 2. Manter `ramqar_paul` e `ramqar_vila_velha_fundo` alimentadas por interpolação espacial IDW ponderada por Haversine $1/d^2$ das estações físicas vizinhas `RGV6 IBES`, `RGV4 Suá` e `RGV5 Centro` (com `source = 'IEMA_IDW'`).
+> 3. `RGV2 Carapina` é formalmente descartada pelo parser para preservar o contrato canônico de 9 estações.
 
 ---
 
