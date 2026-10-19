@@ -1,6 +1,6 @@
 {
   "_comment": "Espelho de model_registry gerado pelo pipeline AetherML",
-  "active_version": "v2026.42.1",
+  "active_version": "v2026.43.1",
   "iqar_table_version": "CONAMA-491/2018",
   "feature_names_v1": [
     "temperature",
@@ -57,16 +57,16 @@
     },
     "pm10": {
       "onnx_file": "pm10.onnx",
-      "sha256": "519d2dc1a8cac8ed2a86c5bd3f121bf444f09318b8cdfa58e3d75e050f95ae86",
-      "size_kb": 637.97,
+      "sha256": "30c323e41d8c25852b9b61f6e34e1b273892d43dfc11f8971c37061b26b97436",
+      "size_kb": 638.87,
       "topology_file": "pm10.topology.json",
       "metrics": {
-        "mae": 0.84,
-        "rmse": 1.42,
-        "r2": 0.8401
+        "mae": 1.66,
+        "rmse": 13.98,
+        "r2": 0.1402
       },
-      "version": "v2026.42.1",
-      "promoted_at": "2026-10-18T23:15:00.311071+00:00"
+      "version": "v2026.43.1",
+      "promoted_at": "2026-10-19T12:29:57.336087+00:00"
     },
     "o3": {
       "onnx_file": "o3.onnx",
@@ -83,16 +83,16 @@
     },
     "no2": {
       "onnx_file": "no2.onnx",
-      "sha256": "6c72dd2e7eabe056f60b262014b27ee9709eb08dd131ea0fc17d74e4875c1514",
-      "size_kb": 631.26,
+      "sha256": "03e22de5f4657455c09bd331ef6dd4c55ac7ac6217fdce1d797ec0877aa3e6bf",
+      "size_kb": 635.18,
       "topology_file": "no2.topology.json",
       "metrics": {
-        "mae": 0.33,
-        "rmse": 0.48,
-        "r2": 0.9929
+        "mae": 0.81,
+        "rmse": 1.23,
+        "r2": 0.964
       },
-      "version": "v2026.38.5",
-      "promoted_at": "2026-10-18T23:15:00.311071+00:00"
+      "version": "v2026.43.1",
+      "promoted_at": "2026-10-19T12:29:57.336087+00:00"
     },
     "so2": {
       "onnx_file": "so2.onnx",
