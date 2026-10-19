@@ -137,3 +137,39 @@ export function getModelCacheStrategy(
 	if (isModelMetadataPath(pathname)) return "network-first";
 	return "cache-first";
 }
+
+/**
+ * Executa busca de asset de modelo/wasm em CacheFirst com proteção contra cache HTTP envenenado.
+ * - Busca no cache por match exato.
+ * - Se ausente, busca na rede com { cache: "no-cache" } para revalidar com o servidor e contornar
+ *   respostas HTML envenenadas (como fallback SPA) retidas no cache HTTP do navegador.
+ * - Valida via canCacheModelResponse (recusa text/html).
+ * - Grava no cache se válido e devolve a resposta fresca.
+ * - Se a resposta for inválida ou a rede falhar, utiliza fallback do cache ou 503.
+ */
+export async function fetchModelAsset(
+	request: Request | string,
+	cache: {
+		match: (req: Request | string) => Promise<Response | undefined>;
+		put: (req: Request | string, res: Response) => Promise<void>;
+	},
+	fetchFn: typeof fetch = fetch,
+): Promise<Response> {
+	const req = typeof request === "string" ? new Request(request) : request;
+	const cached = await cache.match(req);
+	if (cached && canCacheModelResponse(cached)) return cached;
+
+	try {
+		const res = await fetchFn(req, { cache: "no-cache" });
+		if (canCacheModelResponse(res)) {
+			await cache.put(req, res.clone());
+			return res;
+		}
+		// Resposta envenenada recebida da rede (ex.: fallback SPA 200 text/html)
+		if (cached && canCacheModelResponse(cached)) return cached;
+		return new Response("Invalid model asset response", { status: 503 });
+	} catch {
+		if (cached && canCacheModelResponse(cached)) return cached;
+		return new Response("Offline model asset unavailable", { status: 503 });
+	}
+}

@@ -4,6 +4,7 @@ import {
 	STATIC_ASSETS,
 	canCacheModelResponse,
 	cleanRedirectedResponse,
+	fetchModelAsset,
 	getModelCacheStrategy,
 	isDashboardNavigationPath,
 	isModelMetadataPath,
@@ -241,4 +242,111 @@ test("match de modelo com versão exige query param exato (sem ignoreSearch) par
 		undefined,
 		"Match exato deve dar cache-miss quando a versão muda, forçando fetch novo da rede",
 	);
+});
+
+test("fetchModelAsset faz fetch com { cache: 'no-cache' } e armazena resposta válida", async () => {
+	const store = new Map<string, Response>();
+	const fakeCache = {
+		match: async (req: Request | string) => {
+			const key = typeof req === "string" ? req : req.url;
+			return store.get(key);
+		},
+		put: async (req: Request | string, res: Response) => {
+			const key = typeof req === "string" ? req : req.url;
+			store.set(key, res);
+		},
+	};
+
+	let capturedOptions: RequestInit | undefined;
+	const fakeFetch: typeof fetch = async (_input, init) => {
+		capturedOptions = init;
+		return new Response("export default {};", {
+			status: 200,
+			headers: { "Content-Type": "text/javascript" },
+		});
+	};
+
+	const requestUrl =
+		"https://aetherml.pages.dev/wasm/ort-wasm-simd-threaded.mjs";
+	const res = await fetchModelAsset(requestUrl, fakeCache, fakeFetch);
+
+	assert.equal(res.status, 200);
+	assert.equal(await res.text(), "export default {};");
+	assert.equal(
+		capturedOptions?.cache,
+		"no-cache",
+		"Deve enviar { cache: 'no-cache' } para forçar revalidação e ignorar entrada velha no HTTP cache",
+	);
+	assert.ok(
+		store.has(requestUrl),
+		"Asset válido deve ter sido armazenado no cache do SW",
+	);
+});
+
+test("fetchModelAsset recusa resposta envenenada (HTML 200) do cache HTTP e não envenena o SW", async () => {
+	const store = new Map<string, Response>();
+	const fakeCache = {
+		match: async (req: Request | string) => {
+			const key = typeof req === "string" ? req : req.url;
+			return store.get(key);
+		},
+		put: async (req: Request | string, res: Response) => {
+			const key = typeof req === "string" ? req : req.url;
+			store.set(key, res);
+		},
+	};
+
+	// Simula cache HTTP envenenado devolvendo fallback SPA HTML 200
+	const fakeFetch: typeof fetch = async () => {
+		return new Response(
+			"<!DOCTYPE html><html><body>SPA Fallback</body></html>",
+			{
+				status: 200,
+				headers: { "Content-Type": "text/html; charset=utf-8" },
+			},
+		);
+	};
+
+	const requestUrl =
+		"https://aetherml.pages.dev/wasm/ort-wasm-simd-threaded.mjs";
+	const res = await fetchModelAsset(requestUrl, fakeCache, fakeFetch);
+
+	// Não deve entregar o HTML envenenado pro import dinâmico quebrar
+	assert.notEqual(res.status, 200);
+	assert.equal(res.status, 503);
+	assert.equal(
+		store.has(requestUrl),
+		false,
+		"HTML envenenado nunca deve ser gravado no cache de modelos do SW",
+	);
+});
+
+test("fetchModelAsset preserva fallback offline de asset previamente cacheado quando a rede falha", async () => {
+	const store = new Map<string, Response>();
+	const requestUrl = "https://aetherml.pages.dev/models/pm25.onnx?v=v2026.42.1";
+	store.set(
+		requestUrl,
+		new Response("valid_weights", {
+			headers: { "Content-Type": "application/octet-stream" },
+		}),
+	);
+
+	const fakeCache = {
+		match: async (req: Request | string) => {
+			const key = typeof req === "string" ? req : req.url;
+			return store.get(key);
+		},
+		put: async (req: Request | string, res: Response) => {
+			const key = typeof req === "string" ? req : req.url;
+			store.set(key, res);
+		},
+	};
+
+	const failingFetch: typeof fetch = async () => {
+		throw new Error("Network error (offline)");
+	};
+
+	const res = await fetchModelAsset(requestUrl, fakeCache, failingFetch);
+	assert.equal(res.status, 200);
+	assert.equal(await res.text(), "valid_weights");
 });

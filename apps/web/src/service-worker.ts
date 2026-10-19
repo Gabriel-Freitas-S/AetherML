@@ -9,6 +9,7 @@ import {
 	STATIC_ASSETS,
 	canCacheModelResponse,
 	cleanRedirectedResponse,
+	fetchModelAsset,
 	getModelCacheStrategy,
 	isDashboardNavigationPath,
 	resolveOfflineDataFallbackUrl,
@@ -93,7 +94,7 @@ self.addEventListener("fetch", (event) => {
 		if (modelStrategy === "network-first") {
 			// Metadados mutáveis (registry.json, calibration.json) -> NetworkFirst com fallback em CACHE_MODELS
 			event.respondWith(
-				fetch(request)
+				fetch(request, { cache: "no-cache" })
 					.then(async (res) => {
 						if (res.ok && canCacheModelResponse(res)) {
 							const cache = await caches.open(CACHE_MODELS);
@@ -103,8 +104,10 @@ self.addEventListener("fetch", (event) => {
 								cleanUrl.search = "";
 								await cache.put(new Request(cleanUrl.toString()), res.clone());
 							}
+							return res;
 						}
-						return res;
+						// Se retornou não-ok ou HTML envenenado do cache HTTP, dispara fallback
+						throw new Error("Invalid model metadata response");
 					})
 					.catch(async () => {
 						const cache = await caches.open(CACHE_MODELS);
@@ -128,22 +131,8 @@ self.addEventListener("fetch", (event) => {
 
 		// Binários e topologias imutáveis por versão (.onnx, .topology.json, /wasm/) -> CacheFirst com match exato (?v=)
 		event.respondWith(
-			caches.open(CACHE_MODELS).then(async (cache) => {
-				// Match exato com ?v= no CACHE_MODELS (sem ignoreSearch para evitar misturar versões)
-				const cached = await cache.match(request);
-				if (cached && canCacheModelResponse(cached)) return cached;
-				try {
-					const res = await fetch(request);
-					if (canCacheModelResponse(res)) {
-						await cache.put(request, res.clone());
-					}
-					return res;
-				} catch {
-					if (cached) return cached;
-					return new Response("Offline model asset unavailable", {
-						status: 503,
-					});
-				}
+			caches.open(CACHE_MODELS).then((cache) => {
+				return fetchModelAsset(request, cache, fetch);
 			}),
 		);
 		return;
