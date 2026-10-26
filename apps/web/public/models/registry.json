@@ -1,6 +1,6 @@
 {
   "_comment": "Espelho de model_registry gerado pelo pipeline AetherML",
-  "active_version": "v2026.43.1",
+  "active_version": "v2026.44.1",
   "iqar_table_version": "CONAMA-491/2018",
   "feature_names_v1": [
     "temperature",
@@ -44,55 +44,55 @@
   "models": {
     "pm25": {
       "onnx_file": "pm25.onnx",
-      "sha256": "65b37e11fbf997bea7785f463567c930578a66d9a2d07fc800778d0082ad40a0",
-      "size_kb": 628.3,
+      "sha256": "c72d4295ce2e69414291ad01c4e2a932bc0bc6b26326dae2c4db7f29ba9358c6",
+      "size_kb": 624.09,
       "topology_file": "pm25.topology.json",
       "metrics": {
-        "mae": 0.68,
-        "rmse": 1.16,
-        "r2": 0.8514
+        "mae": 1.37,
+        "rmse": 2.16,
+        "r2": 0.791
       },
-      "version": "v2026.42.1",
-      "promoted_at": "2026-10-18T23:15:00.311071+00:00"
+      "version": "v2026.44.1",
+      "promoted_at": "2026-10-26T12:29:36.385425+00:00"
     },
     "pm10": {
       "onnx_file": "pm10.onnx",
-      "sha256": "30c323e41d8c25852b9b61f6e34e1b273892d43dfc11f8971c37061b26b97436",
-      "size_kb": 638.87,
+      "sha256": "600205cacff3a14439e391cb8c7143f0934a83ccc884ce57d549745627fa5d97",
+      "size_kb": 226.97,
       "topology_file": "pm10.topology.json",
       "metrics": {
-        "mae": 1.66,
-        "rmse": 13.98,
-        "r2": 0.1402
+        "mae": 4.24,
+        "rmse": 14.75,
+        "r2": 0.5316
       },
-      "version": "v2026.43.1",
-      "promoted_at": "2026-10-19T12:29:57.336087+00:00"
+      "version": "v2026.44.1",
+      "promoted_at": "2026-10-26T12:29:36.385425+00:00"
     },
     "o3": {
       "onnx_file": "o3.onnx",
-      "sha256": "68360336e49d2a573627e91da0f575d5515d08cbb41ae0cb3bb3294642e5cc19",
-      "size_kb": 612.38,
+      "sha256": "cc68351a4325a4fbcf8ece4a45d3b4c0a0309be2788ac4aec6b2b2f4cad956c4",
+      "size_kb": 603.05,
       "topology_file": "o3.topology.json",
       "metrics": {
-        "mae": 1.76,
-        "rmse": 2.5,
-        "r2": 0.9859
+        "mae": 4.31,
+        "rmse": 9.03,
+        "r2": 0.8645
       },
-      "version": "v2026.38.5",
-      "promoted_at": "2026-10-18T23:15:00.311071+00:00"
+      "version": "v2026.44.1",
+      "promoted_at": "2026-10-26T12:29:36.385425+00:00"
     },
     "no2": {
       "onnx_file": "no2.onnx",
-      "sha256": "03e22de5f4657455c09bd331ef6dd4c55ac7ac6217fdce1d797ec0877aa3e6bf",
-      "size_kb": 635.18,
+      "sha256": "1ea0d596dbd4b97f64db33d2b94d9a5ef87361b0b259df83f03b60784608f8ef",
+      "size_kb": 633.59,
       "topology_file": "no2.topology.json",
       "metrics": {
-        "mae": 0.81,
-        "rmse": 1.23,
-        "r2": 0.964
+        "mae": 0.89,
+        "rmse": 1.72,
+        "r2": 0.893
       },
-      "version": "v2026.43.1",
-      "promoted_at": "2026-10-19T12:29:57.336087+00:00"
+      "version": "v2026.44.1",
+      "promoted_at": "2026-10-26T12:29:36.385425+00:00"
     },
     "so2": {
       "onnx_file": "so2.onnx",
