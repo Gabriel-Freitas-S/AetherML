@@ -1,6 +1,6 @@
 {
   "_comment": "Espelho de model_registry gerado pelo pipeline AetherML",
-  "active_version": "v2026.44.1",
+  "active_version": "v2026.47.1",
   "iqar_table_version": "CONAMA-491/2018",
   "feature_names_v1": [
     "temperature",
@@ -57,16 +57,16 @@
     },
     "pm10": {
       "onnx_file": "pm10.onnx",
-      "sha256": "600205cacff3a14439e391cb8c7143f0934a83ccc884ce57d549745627fa5d97",
-      "size_kb": 226.97,
+      "sha256": "1e80b41d80fee5fb1080e6b4f92096d11a6a25fcd641260328035ae08a725774",
+      "size_kb": 540.83,
       "topology_file": "pm10.topology.json",
       "metrics": {
-        "mae": 4.24,
-        "rmse": 14.75,
-        "r2": 0.5316
+        "mae": 1.08,
+        "rmse": 1.43,
+        "r2": 0.9269
       },
-      "version": "v2026.44.1",
-      "promoted_at": "2026-10-26T12:29:36.385425+00:00"
+      "version": "v2026.47.1",
+      "promoted_at": "2026-11-16T15:08:51.748512+00:00"
     },
     "o3": {
       "onnx_file": "o3.onnx",
